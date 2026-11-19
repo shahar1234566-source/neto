@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>נטו הזמנות</title>
+<meta name="description" content="הזמנת סחורה מנטו ליאור לב">
+<meta name="theme-color" content="#ffffff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="נטו הזמנות">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="manifest" href="manifest.json">
+<style>
+html,body{margin:0;height:100%;background:#fff}
+iframe{position:fixed;inset:0;width:100%;height:100%;border:0;padding-top:env(safe-area-inset-top);box-sizing:border-box;background:#fff}
+#splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#fff;font:700 20px Arial,sans-serif;color:#1f2328;transition:opacity .4s;z-index:2}
+#splash img{width:46%;max-width:220px}
+#splash.go{opacity:0;pointer-events:none}
+</style></head><body>
+<div id="splash"><img src="icon-512.png" alt="נטו ליאור לב"><div>נטו הזמנות</div></div>
+<iframe id="app" title="נטו הזמנות" allow="microphone; camera; clipboard-write"></iframe>
+<script>
+var APP="https://script.google.com/macros/s/AKfycbyzyAYslUarKtd24HbbDjUucIkbwN_YXGXI8GPFIGhzcJwuHEulJWCrfVhjedAsjiA/exec";
+var f=document.getElementById("app");
+f.src=APP+location.search;
+f.onload=function(){setTimeout(function(){document.getElementById("splash").className="go"},300)};
+setTimeout(function(){document.getElementById("splash").className="go"},6000);
+</script>
+</body></html>
