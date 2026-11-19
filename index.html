@@ -8,24 +8,36 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="נטו הזמנות">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="manifest" href="manifest.json">
 <style>
-html,body{margin:0;height:100%;background:#fff}
-iframe{position:fixed;inset:0;width:100%;height:100%;border:0;padding-top:env(safe-area-inset-top);box-sizing:border-box;background:#fff}
-#splash{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#fff;font:700 20px Arial,sans-serif;color:#1f2328;transition:opacity .4s;z-index:2}
-#splash img{width:46%;max-width:220px}
-#splash.go{opacity:0;pointer-events:none}
+:root{--brand:#e63a2f;--ink:#1f2328;--muted:#646a73;--line:#e7e2df}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:#fff;color:var(--ink);font-family:-apple-system,system-ui,"Segoe UI",Arial,sans-serif}
+main{max-width:420px;margin:0 auto;padding:48px 22px 32px;display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center}
+img.logo{width:62%;max-width:240px;border-radius:22%;box-shadow:0 8px 24px rgba(0,0,0,.08)}
+h1{margin:0;font-size:26px}
+p{margin:0;color:var(--muted)}
+a.go{display:block;width:100%;background:var(--brand);color:#fff;text-decoration:none;font-weight:700;font-size:19px;padding:15px;border-radius:14px;box-shadow:0 6px 16px rgba(230,58,47,.3)}
+.tip{width:100%;border:1px solid var(--line);border-radius:14px;padding:14px;font-size:15px;line-height:1.5;text-align:start}
+.tip b{display:block;margin-bottom:4px}
 </style></head><body>
-<div id="splash"><img src="icon-512.png" alt="נטו ליאור לב"><div>נטו הזמנות</div></div>
-<iframe id="app" title="נטו הזמנות" allow="microphone; camera; clipboard-write"></iframe>
+<main>
+<img class="logo" src="icon-512.png" alt="נטו ליאור לב">
+<h1>נטו הזמנות</h1>
+<p>הזמנת סחורה מנטו ליאור לב</p>
+<a class="go" id="go" href="https://script.google.com/macros/s/AKfycbyzyAYslUarKtd24HbbDjUucIkbwN_YXGXI8GPFIGhzcJwuHEulJWCrfVhjedAsjiA/exec">כניסה להזמנות</a>
+<div class="tip" id="tip"><b>📱 רוצה אייקון במסך הבית?</b>
+<span id="ios">באייפון (ספארי): כפתור השיתוף ⬆️ ← "הוסף למסך הבית".</span>
+<span id="and" hidden>באנדרואיד: ⋮ ← "הוספה למסך הבית". במחשב (כרום): ⋮ ← "העברה, שמירה ושיתוף" ← "יצירת קיצור דרך".</span></div>
+</main>
 <script>
 var APP="https://script.google.com/macros/s/AKfycbyzyAYslUarKtd24HbbDjUucIkbwN_YXGXI8GPFIGhzcJwuHEulJWCrfVhjedAsjiA/exec";
-var f=document.getElementById("app");
-f.src=APP+location.search;
-f.onload=function(){setTimeout(function(){document.getElementById("splash").className="go"},300)};
-setTimeout(function(){document.getElementById("splash").className="go"},6000);
+var url=APP+location.search;
+document.getElementById("go").href=url;
+if(!/iphone|ipad/i.test(navigator.userAgent)){document.getElementById("ios").hidden=true;document.getElementById("and").hidden=false;}
+var standalone=window.navigator.standalone||window.matchMedia("(display-mode: standalone)").matches;
+if(standalone){document.getElementById("tip").hidden=true;location.replace(url);}
 </script>
 </body></html>
