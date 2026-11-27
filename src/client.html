@@ -52,7 +52,9 @@ function cartTotals(){let c=0,u=0;for(const[id,q]of Object.entries(S.cart)){if(!
 const cartCount=()=>Object.values(S.cart).filter(q=>q>0).length;
 
 /* ---------- boot ---------- */
+function urlParams(){return new Promise(res=>{let done=false;const fin=v=>{if(!done){done=true;res(v||{})}};setTimeout(()=>fin({}),2500);try{google.script.url.getLocation(l=>fin(l&&l.parameter))}catch(e){fin({})}})}
 async function start(){
+  if(!BOOT.params.c){const q=await urlParams();if(q.u){BOOT.params.c=q.u;BOOT.params.k=q.k||""}if(q.admin)BOOT.params.admin=q.admin}
   if(BOOT.params.c&&BOOT.params.k&&S.mode==="customer"){
     try{const r=await call("login",{c:BOOT.params.c,k:BOOT.params.k});S.token=r.token;LS.set("token",r.token);LS.set("mode","customer")}catch(e){S.loginErr=e.message}
   }
@@ -226,7 +228,7 @@ const ATABS=[["orders","☰","הזמנות"],["customers","👥","לקוחות"]
 S.af=S.af||{st:"פעילות",oq:"",cq:"",pq:"",pz:"הכול",hidden:false};
 const A=()=>S.admin;
 const pubUrl=()=>(A().settings["כתובת האפליקציה"]||PUBLIC_URL_FALLBACK);
-const personal=c=>`${pubUrl()}?c=${c["קוד"]}&k=${c["מפתח אישי"]||""}`;
+const personal=c=>`${pubUrl()}?u=${c["קוד"]}&k=${c["מפתח אישי"]||""}`;
 const waHref=(wa,msg)=>`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`;
 async function adminSave(action,payload,okMsg){try{S.admin=await call(action,Object.assign({token:S.token},payload));closeModal();keepScroll(render);if(okMsg)toast(okMsg);return true}catch(e){toast(e.message);return false}}
 function closeModal(){document.querySelectorAll(".modal,.center").forEach(m=>m.remove())}

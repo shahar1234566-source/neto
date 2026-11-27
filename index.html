@@ -34,7 +34,7 @@ a.go{display:block;width:100%;background:var(--brand);color:#fff;text-decoration
 </main>
 <script>
 var APP="https://script.google.com/macros/s/AKfycbyzyAYslUarKtd24HbbDjUucIkbwN_YXGXI8GPFIGhzcJwuHEulJWCrfVhjedAsjiA/exec";
-var url=APP+location.search;
+var url=APP+location.search.replace(/([?&])c=/,"$1u=");
 document.getElementById("go").href=url;
 if(!/iphone|ipad/i.test(navigator.userAgent)){document.getElementById("ios").hidden=true;document.getElementById("and").hidden=false;}
 var standalone=window.navigator.standalone||window.matchMedia("(display-mode: standalone)").matches;
