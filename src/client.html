@@ -290,10 +290,11 @@ function customersView(){const a=A(),q=S.af.cq.trim();
   <div class="panel">${list.map(c=>`<div class="row"><button class="grow" data-ce="${c._row}" style="all:unset;flex:1;min-width:0;cursor:pointer"><b>${esc(c["שם"])}</b><div class="meta">${c["קוד"]}${c["איש קשר"]?" · "+esc(c["איש קשר"]):""}${c["טלפון"]?" · "+esc(c["טלפון"]):""}${c["ימי אספקה"]?" · אספקה "+esc(c["ימי אספקה"]):""}</div></button>
     <label class="toggle small"><input type="checkbox" data-acc="${c._row}" ${c._access?"checked":""}> גישה</label>
     ${c._access&&c._wa?`<a class="mini wa" target="_blank" rel="noopener" href="${waHref(c._wa,`שלום ${c["שם"]}, מעכשיו אפשר להזמין מ${a.business} באפליקציה 👇\n${personal(c)}\n\nלאייקון במסך הבית: שיתוף ← "הוסף למסך הבית".`)}">קישור</a>`:""}</div>`).join("")||`<div class="empty">לא נמצאו לקוחות.</div>`}</div>`}
-function editCustomer(row){const c=row?A().customers.find(x=>x._row===row):{"גישה":true};
+function nextCode(){const n=A().customers.map(x=>parseInt(String(x["קוד"]).replace(/\D/g,""),10)).filter(x=>!isNaN(x));let k=(n.length?Math.max(...n):0)+1;const used=new Set(n);while(used.has(k))k++;return String(k).padStart(4,"0")}
+function editCustomer(row){const c=row?A().customers.find(x=>x._row===row):{"גישה":true,"קוד":nextCode()};
   const m=sheet(row?c["שם"]:"לקוח חדש",`
   ${fld("שם הלקוח","c_name",c["שם"])}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px"><div>${fld("קוד לקוח","c_code",c["קוד"],'inputmode="numeric"')}</div><div>${fld("רשת","c_chain",c["רשת"])}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px"><div>${fld("קוד לקוח","c_code",c["קוד"],'inputmode="numeric"')}${row?"":`<p class="note small" style="margin:4px 0 0">מולא אוטומטית. אם יש ללקוח קוד בתוכנת הסוכנים, רשום אותו כאן.</p>`}</div><div>${fld("רשת","c_chain",c["רשת"])}</div>
   <div>${fld("איש קשר","c_contact",c["איש קשר"])}</div><div>${fld("טלפון","c_phone",c["טלפון"],'inputmode="tel"')}</div>
   <div>${fld("וואטסאפ","c_wa",c["וואטסאפ"],'inputmode="tel" placeholder="אם שונה מהטלפון"')}</div><div>${fld("מייל","c_mail",c["מייל"],'inputmode="email"')}</div></div>
   ${fld("כתובת","c_addr",c["כתובת"])}
