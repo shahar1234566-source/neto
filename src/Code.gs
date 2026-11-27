@@ -61,14 +61,18 @@ function setup() {
   if (!setting_('שעת סיכום')) setSetting_('שעת סיכום', '13');
   if (!setting_('סיכום יומי')) setSetting_('סיכום יומי', 'פעיל');
   if (!setting_('כתובת האפליקציה')) setSetting_('כתובת האפליקציה', 'https://shahar1234566-source.github.io/neto/');
-  ensureCols_(cs, ['ימי תזכורת', 'שעת תזכורת']);
+  ensureCols_(cs, ['ימי תזכורת', 'שעת תזכורת', 'מגוון']);
+  ensureCols_(ps, ['מגוונים', 'מזהה פנימי']);
+  const imp = importCatalog_();
+  fillInternalIds_();
   if (!setting_('סיסמת מנהל')) setSetting_('סיסמת מנהל', String(100000 + Math.floor(Math.random() * 900000)));
 
   // תזכורת יומית
   ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === 'sendReminders') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('sendReminders').timeBased().everyHours(1).create();
 
-  SpreadsheetApp.getUi && toast_('ההתקנה הסתיימה. עכשיו: פריסה ← פריסה חדשה ← אפליקציית אינטרנט.');
+  SpreadsheetApp.getUi && toast_('ההתקנה הסתיימה' + (imp ? ' · ' + imp : '') + '. עכשיו: פריסה ← ניהול פריסות ← גרסה חדשה.');
+  return imp;
 }
 
 function toast_(m) { try { SpreadsheetApp.getActive().toast(m, 'נטו הזמנות', 10); } catch (e) {} }
@@ -105,6 +109,15 @@ function logoUrl_(sz) {
   const id = PropertiesService.getScriptProperties().getProperty('LOGO_ID');
   return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w' + (sz || 400) : '';
 }
+// מזהה מוצר באפליקציה: מק"ט, ואם אין – ברקוד, ואם אין – מזהה פנימי
+function pid_(r) {
+  const sku = String(r['מק"ט'] || '').trim();
+  if (sku) return sku;
+  const bc = String(r['ברקוד'] || '').trim();
+  if (bc) return 'b' + bc;
+  return 'n' + String(r['מזהה פנימי'] || '').trim();
+}
+function listOf_(s) { return String(s || '').split(',').map(x => x.trim()).filter(Boolean); }
 function imgUrl_(id) { return id ? 'https://drive.google.com/thumbnail?id=' + id + '&sz=w400' : ''; }
 
 /* ================= API (נקרא מהדפדפן) ================= */
@@ -125,6 +138,8 @@ function api(action, p) {
       case 'deleteRow': auth_(p.token, 'a'); deleteRow_(p.kind, p.row, p.check); return adminData_();
       case 'saveSettings': auth_(p.token, 'a'); Object.keys(p.data || {}).forEach(k => setSetting_(k, p.data[k])); return adminData_();
       case 'uploadImage': auth_(p.token, 'a'); return uploadImage_(p.b64, p.name);
+      case 'bulkProducts': auth_(p.token, 'a'); bulkProducts_(p); return adminData_();
+      case 'saveAssorts': auth_(p.token, 'a'); saveAssorts_(p.names || [], p.renames || {}); return adminData_();
     }
     throw new Error('פעולה לא מוכרת');
   } catch (err) {
@@ -162,8 +177,9 @@ function adminLogin_(p) {
 
 function catalog_(s) {
   const c = customers_().find(x => x['קוד'] === s.code);
-  const products = rows_(SH.products).filter(r => truthy_(r['פעיל'])).map(r => ({
-    id: String(r['מק"ט'] || ('b' + r['ברקוד'])), item: String(r['מק"ט'] || ''), name: r['שם מוצר'], cat: r['קטגוריה'],
+  const asg = String(c['מגוון'] || '').trim();
+  const products = rows_(SH.products).filter(r => truthy_(r['פעיל']) && (!asg || listOf_(r['מגוונים']).indexOf(asg) >= 0)).map(r => ({
+    id: pid_(r), item: String(r['מק"ט'] || ''), name: r['שם מוצר'], cat: r['קטגוריה'],
     sub: r['תת-קטגוריה'] || 'כללי', carton: Number(r["יח' בקרטון"]) || null, barcode: String(r['ברקוד'] || ''),
     img: imgUrl_(r['מזהה תמונה']), tag: r['תגית'] || ''
   }));
@@ -183,7 +199,7 @@ function submit_(s, p) {
   try {
     const ss = SpreadsheetApp.getActive();
     const c = customers_().find(x => x['קוד'] === s.code);
-    const prod = {}; rows_(SH.products).forEach(r => prod[String(r['מק"ט'] || ('b' + r['ברקוד']))] = r);
+    const prod = {}; rows_(SH.products).forEach(r => prod[pid_(r)] = r);
     const no = Number(setting_('מספר הזמנה הבא')) || 1001;
     setSetting_('מספר הזמנה הבא', no + 1);
     const now = new Date();
@@ -232,6 +248,7 @@ function adminData_() {
     products: sheetRows_(SH.products).map(x => Object.assign({ _row: x.row, _img: imgUrl_(x.data['מזהה תמונה']), _active: truthy_(x.data['פעיל']) }, x.data)),
     promos: sheetRows_(SH.promos).map(x => Object.assign({ _row: x.row, _active: truthy_(x.data['פעיל']) }, x.data)),
     due: dueToday_(custs, orders),
+    assorts: listOf_(settings['מגוונים']),
     settings, url: pub, appUrl: ScriptApp.getService().getUrl(),
     business: settings['שם העסק'] || 'נטו ליאור לב',
     sheetUrl: ss.getUrl(), folderUrl: appFolder_().getUrl()
@@ -241,7 +258,7 @@ function adminData_() {
 /* ================= עריכה מתוך האפליקציה ================= */
 
 const EDITABLE = { products: SH.products, customers: SH.customers, promos: SH.promos };
-const TEXT_COLS = ['מק"ט', 'ברקוד', 'קוד', 'טלפון', 'וואטסאפ', 'סיסמה', 'מפתח אישי', 'ימי אספקה', 'ימי תזכורת', 'שעת סגירה'];
+const TEXT_COLS = ['מק"ט', 'ברקוד', 'מזהה פנימי', 'קוד', 'טלפון', 'וואטסאפ', 'סיסמה', 'מפתח אישי', 'ימי אספקה', 'ימי תזכורת', 'שעת סגירה'];
 
 function sheetRows_(name) {
   const v = SpreadsheetApp.getActive().getSheetByName(name).getDataRange().getValues();
@@ -281,6 +298,7 @@ function saveRow_(kind, row, data) {
       const dup = sheetRows_(name).find(x => String(x.data['מק"ט']) === String(data['מק"ט']) && x.row !== Number(row));
       if (dup) throw new Error('כבר יש מוצר עם המק"ט ' + data['מק"ט']);
     }
+    if (kind === 'products' && !row && !data['מק"ט'] && !data['ברקוד'] && !data['מזהה פנימי']) data['מזהה פנימי'] = nextInternalId_();
     const r = row ? Number(row) : sh.getLastRow() + 1;
     const cur = row ? sh.getRange(r, 1, 1, h.length).getValues()[0] : h.map(() => '');
     h.forEach((k, i) => { if (Object.prototype.hasOwnProperty.call(data, k)) cur[i] = data[k]; });
@@ -295,6 +313,108 @@ function deleteRow_(kind, row, check) {
   if (String(check) !== first) throw new Error('הנתונים השתנו בינתיים. רענן ונסה שוב.');
   sh.deleteRow(Number(row));
 }
+/* ---------- מגוונים ופעולות על הרבה מוצרים ---------- */
+function bulkProducts_(p) {
+  const rows = (p.rows || []).map(Number).filter(Boolean);
+  if (!rows.length) throw new Error('לא נבחרו מוצרים');
+  const lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    const sh = SpreadsheetApp.getActive().getSheetByName(SH.products);
+    const h = ensureCols_(sh, ['מגוונים']);
+    const v = sh.getRange(1, 1, sh.getLastRow(), h.length).getValues();
+    const cAct = h.indexOf('פעיל'), cAs = h.indexOf('מגוונים');
+    const actCol = v.map(r => [r[cAct]]), asCol = v.map(r => [r[cAs]]);
+    rows.forEach(r => {
+      const i = r - 1; if (i < 1 || i >= v.length) return;
+      if (typeof p.active === 'boolean') actCol[i][0] = p.active;
+      let l = listOf_(asCol[i][0]);
+      if (p.addTo && l.indexOf(p.addTo) < 0) l.push(p.addTo);
+      if (p.removeFrom) l = l.filter(x => x !== p.removeFrom);
+      asCol[i][0] = l.join(', ');
+    });
+    sh.getRange(1, cAct + 1, v.length, 1).setValues(actCol);
+    sh.getRange(1, cAs + 1, v.length, 1).setValues(asCol);
+  } finally { lock.releaseLock(); }
+}
+function saveAssorts_(names, renames) {
+  names = names.map(x => String(x).replace(/,/g, ' ').trim()).filter(Boolean);
+  const keep = {}; names.forEach(n => keep[n] = true);
+  const fix = l => listOf_(l).map(x => renames[x] || x).filter(x => keep[x]);
+  const ss = SpreadsheetApp.getActive();
+  [[SH.products, 'מגוונים', true], [SH.customers, 'מגוון', false]].forEach(([name, col, multi]) => {
+    const sh = ss.getSheetByName(name);
+    const h = ensureCols_(sh, [col]);
+    const n = sh.getLastRow(); if (n < 2) return;
+    const rng = sh.getRange(2, h.indexOf(col) + 1, n - 1, 1);
+    rng.setValues(rng.getValues().map(r => [multi ? fix(r[0]).join(', ') : (fix(r[0])[0] || '')]));
+  });
+  setSetting_('מגוונים', names.join(', '));
+}
+
+/* ---------- מזהה פנימי למוצר בלי מק"ט וברקוד ---------- */
+function nextInternalId_() {
+  let max = 0;
+  rows_(SH.products).forEach(r => { const m = String(r['מזהה פנימי'] || '').match(/(\d+)/); if (m) max = Math.max(max, Number(m[1])); });
+  return 'P' + String(max + 1).padStart(4, '0');
+}
+function fillInternalIds_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SH.products);
+  const h = ensureCols_(sh, ['מזהה פנימי']);
+  const v = sh.getDataRange().getValues();
+  const cS = h.indexOf('מק"ט'), cB = h.indexOf('ברקוד'), cI = h.indexOf('מזהה פנימי');
+  let max = 0;
+  v.forEach((r, i) => { if (i) { const m = String(r[cI] || '').match(/(\d+)/); if (m) max = Math.max(max, Number(m[1])); } });
+  const col = v.map((r, i) => {
+    if (!i) return [r[cI]];
+    if (!r.some(x => x !== '')) return [r[cI]];
+    if (!String(r[cS] || '').trim() && !String(r[cB] || '').trim() && !String(r[cI] || '').trim()) return ['P' + String(++max).padStart(4, '0')];
+    return [r[cI]];
+  });
+  sh.getRange(1, cI + 1, col.length, 1).setNumberFormat('@').setValues(col);
+}
+
+/* ---------- ייבוא מוצרים מקובץ ייבוא-מוצרים.json (פעם אחת) ---------- */
+function importCatalog_() {
+  const folder = appFolder_();
+  const it = folder.getFilesByName('ייבוא-מוצרים.json');
+  if (!it.hasNext()) return '';
+  const file = it.next();
+  const job = JSON.parse(file.getBlob().getDataAsString('UTF-8'));
+  const sh = SpreadsheetApp.getActive().getSheetByName(SH.products);
+  const h = ensureCols_(sh, ['מגוונים', 'מזהה פנימי', 'עמוד בקטלוג', 'מה לבדוק']);
+  const v = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), h.length).getValues();
+  const c = k => h.indexOf(k);
+  const bySku = {}; v.forEach((r, i) => { if (i && String(r[c('מק"ט')]).trim()) bySku[String(r[c('מק"ט')]).trim()] = i; });
+  const clearName = s => String(s || '').split(',').map(x => x.trim()).filter(x => x && x !== 'שם לבדיקה').join(', ');
+  let fixed = 0, skus = 0;
+  (job.setSku || []).forEach(f => {
+    const i = v.findIndex((r, j) => j && !String(r[c('מק"ט')]).trim() && String(r[c('שם מוצר')]).trim() === f.find);
+    if (i < 1) return;
+    if (f.sku && bySku[f.sku] === undefined) { v[i][c('מק"ט')] = f.sku; bySku[f.sku] = i; skus++; }
+    if (f.name) v[i][c('שם מוצר')] = f.name;
+    if (f.barcode && !String(v[i][c('ברקוד')]).trim()) v[i][c('ברקוד')] = f.barcode;
+    if (f.carton && !v[i][c("יח' בקרטון")]) v[i][c("יח' בקרטון")] = f.carton;
+    v[i][c('מה לבדוק')] = clearName(String(v[i][c('מה לבדוק')]).replace('חסר מק"ט', ''));
+  });
+  (job.fixName || []).forEach(f => {
+    const i = bySku[String(f.sku)]; if (i === undefined) return;
+    if (f.name) v[i][c('שם מוצר')] = f.name;
+    if (f.newSku && bySku[f.newSku] === undefined) { v[i][c('מק"ט')] = f.newSku; bySku[f.newSku] = i; }
+    v[i][c('מה לבדוק')] = clearName(v[i][c('מה לבדוק')]);
+    fixed++;
+  });
+  const add = (job.add || []).filter(a => !a['מק"ט'] || bySku[a['מק"ט']] === undefined);
+  const newRows = add.map(a => h.map(k => k === 'פעיל' ? false : (a[k] === undefined ? '' : a[k])));
+  sh.getRange(1, 1, v.length, h.length).setValues(v);
+  if (newRows.length) {
+    const start = sh.getLastRow() + 1;
+    h.forEach((k, i) => { if (TEXT_COLS.indexOf(k) >= 0) sh.getRange(start, i + 1, newRows.length, 1).setNumberFormat('@'); });
+    sh.getRange(start, 1, newRows.length, h.length).setValues(newRows);
+  }
+  file.setName('ייבוא-מוצרים-בוצע-' + Utilities.formatDate(new Date(), 'Asia/Jerusalem', 'yyyy-MM-dd') + '.json');
+  return 'נוספו ' + newRows.length + ' מוצרים, תוקנו ' + fixed + ' שמות והושלמו ' + skus + ' מק"טים';
+}
+
 function uploadImage_(b64, name) {
   const blob = Utilities.newBlob(Utilities.base64Decode(b64), 'image/jpeg', (name || ('img-' + Date.now())) + '.jpg');
   const f = subFolder_(appFolder_(), 'תמונות').createFile(blob);
@@ -406,7 +526,7 @@ function sendReminders() {
   due.filter(d => d.hour === H && !d.ordered && d.email).forEach(d => {
     const c = custs.find(x => x['קוד'] === d.code);
     const msg = text.replace('{שם}', d.name).replace('{שעת סגירה}', c['שעת סגירה'] || setting_('שעת סגירה') || '');
-    const link = pub + '?c=' + d.code + '&k=' + d.key;
+    const link = pub + '?u=' + d.code + '&k=' + d.key;
     MailApp.sendEmail({ to: d.email, subject: 'תזכורת להזמנה – ' + biz, htmlBody: '<div dir="rtl" style="font-family:Arial">' + esc_(msg) + '<p><a href="' + link + '" style="background:#e63a2f;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none">להזמנה</a></p></div>', name: biz });
   });
   // סיכום יומי
@@ -415,7 +535,7 @@ function sendReminders() {
   const owner = setting_('מייל הזמנות'); if (!owner) return;
   const missing = due.filter(d => !d.ordered), done = due.filter(d => d.ordered);
   const rows = missing.map(d => {
-    const link = pub + '?c=' + d.code + '&k=' + d.key;
+    const link = pub + '?u=' + d.code + '&k=' + d.key;
     const wmsg = 'שלום ' + d.name + ', תזכורת מ' + biz + ': עוד לא קיבלנו ממך הזמנה היום 🙂 להזמנה: ' + link;
     return '<tr><td style="padding:8px;border-bottom:1px solid #eee"><b>' + esc_(d.name) + '</b> (' + d.code + ')</td><td style="padding:8px;border-bottom:1px solid #eee">' +
       (d.wa ? '<a href="https://wa.me/' + d.wa + '?text=' + encodeURIComponent(wmsg) + '" style="background:#1fa855;color:#fff;padding:6px 12px;border-radius:8px;text-decoration:none">שלח תזכורת בוואטסאפ</a>' : 'אין טלפון') + '</td></tr>';
