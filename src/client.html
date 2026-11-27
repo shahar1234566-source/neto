@@ -229,7 +229,7 @@ S.af=S.af||{st:"פעילות",oq:"",cq:"",pq:"",pz:"הכול",hidden:false};
 const A=()=>S.admin;
 const pubUrl=()=>(A().settings["כתובת האפליקציה"]||PUBLIC_URL_FALLBACK);
 const personal=c=>`${pubUrl()}?u=${c["קוד"]}&k=${c["מפתח אישי"]||""}`;
-const inviteMsg=c=>{const who=String(c["איש קשר"]||c["שם"]||"").trim();return `שלום ${who} 👋\n\n*${A().business||"נטו ליאור לב"}* – מעכשיו מזמינים סחורה ישירות מהטלפון! 📱\n\n✅ כל הקטלוג עם תמונות\n✅ הזמנה בקרטונים או ביחידות\n✅ "הזמן שוב" בלחיצה אחת\n✅ זמין 24/7, בלי טלפונים\n\n👇 *לחצו על הקישור להזמנה* 👇\n${personal(c)}`};
+const inviteMsg=c=>{const who=String(c["איש קשר"]||c["שם"]||"").trim();return `שלום ${who} 👋\nמעכשיו מזמינים סחורה ישירות מהאפליקציה 📱\nכל הקטלוג עם תמונות, הזמנה בכמה לחיצות.\n\n👇 לחצו להזמנה\n${personal(c)}`};
 const waHref=(wa,msg)=>`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`;
 async function adminSave(action,payload,okMsg){try{S.admin=await call(action,Object.assign({token:S.token},payload));closeModal();keepScroll(render);if(okMsg)toast(okMsg);return true}catch(e){toast(e.message);return false}}
 function closeModal(){document.querySelectorAll(".modal,.center").forEach(m=>m.remove())}
