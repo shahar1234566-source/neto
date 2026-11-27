@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;700;800&family=Assistant:wght@400;600;700&display=swap" rel="stylesheet">
+__STYLE__
+<style>
+.shell{max-width:520px}
+.spin{display:flex;align-items:center;justify-content:center;gap:10px;color:var(--muted);padding:40px}
+.spin:before{content:"";width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--brand);animation:sp 0.8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.err{background:#fdecea;color:#8a1c14;border-radius:12px;padding:10px 12px;margin:8px 0;font-size:14px}
+.card .ph img[data-noimg]{object-fit:none}
+.noimg{display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:var(--muted);font-size:13px;background:var(--paper);border-radius:10px}
+.linkrow{display:flex;gap:6px;flex-wrap:wrap}
+.small{font-size:12.5px}
+.mini{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 10px;font-size:13px;text-decoration:none;color:var(--ink);white-space:nowrap}
+.mini.wa{border-color:#1fa855;color:#137a3c}
+</style>
+</head>
+<body>
+<div class="shell" id="shell">
+  <div id="app" style="flex:1;display:flex;flex-direction:column;min-height:0;position:relative"></div>
+</div>
+<script>
+window.__errs=[];
+window.onerror=function(m,s,l,c,e){window.__errs.push(String(m)+" @"+l+":"+c);showDiag();};
+window.addEventListener("unhandledrejection",function(e){window.__errs.push("promise: "+(e.reason&&e.reason.message||e.reason));showDiag();});
+function showDiag(){var a=document.getElementById("app");if(!a)return;if(a.children.length&&!window.__forceDiag)return;
+a.innerHTML='<div style="padding:20px;font:15px Arial;direction:rtl"><b>שגיאה בטעינה</b><p>צלם מסך ושלח ל-Claude:</p><pre style="white-space:pre-wrap;direction:ltr;font-size:12px;background:#f3f3f3;padding:8px">'+window.__errs.join("\n").replace(/</g,"&lt;")+"\n"+navigator.userAgent+'</pre></div>';}
+setTimeout(function(){var a=document.getElementById("app");if(a&&!a.children.length){window.__errs.push("timeout: nothing rendered");showDiag();}},4000);
+</script>
+<script>
+const BOOT=__BOOT__;
+const ZONES=["קפוא","מצונן","יבש","חד-פעמי וניקיון"];
+const LS={get(k){try{return localStorage.getItem("neto_"+k)}catch(e){return null}},set(k,v){try{v==null?localStorage.removeItem("neto_"+k):localStorage.setItem("neto_"+k,v)}catch(e){}}};
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmtD=t=>new Date(t).toLocaleDateString("he-IL",{weekday:"long",day:"numeric",month:"numeric"});
+const fmtT=t=>new Date(t).toLocaleTimeString("he-IL",{hour:"2-digit",minute:"2-digit"});
+function call(action,p){return new Promise((res,rej)=>{google.script.run.withSuccessHandler(r=>{if(r&&r.error){if(r.error==="SESSION"){logout(true);rej(new Error("החיבור פג. היכנס שוב."));}else rej(new Error(r.error))}else res(r)}).withFailureHandler(e=>rej(new Error(e&&e.message||"שגיאת תקשורת. בדוק את החיבור לאינטרנט."))).api(action,p)})}
+
+const app=document.getElementById("app");
+let S={mode:LS.get("mode")||(BOOT.params.admin?"admin":"customer"),token:LS.get("token"),tab:"catalog",zone:"קפוא",sub:null,q:"",cart:JSON.parse(LS.get("cart")||"{}"),unit:JSON.parse(LS.get("unit")||"{}"),note:"",voice:null,data:null,admin:null,adminTab:"orders",openOrder:null,last:null,busy:false,promoSeen:false};
+const P=()=>Object.fromEntries((S.data?.products||[]).map(p=>[p.id,p]));
+function save(){LS.set("cart",JSON.stringify(S.cart));LS.set("unit",JSON.stringify(S.unit))}
+function toast(m){const t=document.createElement("div");t.className="toast";t.textContent=m;app.appendChild(t);setTimeout(()=>t.remove(),3000)}
+function logout(silent){S.token=null;LS.set("token",null);S.data=null;S.admin=null;render();if(silent)toast("החיבור פג. היכנס שוב.")}
+const logoImg=cls=>BOOT.logo?`<img class="${cls||"logo"}" src="${BOOT.logo}" alt="Neto">`:`<b class="logo" style="font-family:var(--f-display);color:var(--brand);font-size:24px">Neto</b>`;
+function cartTotals(){let c=0,u=0;for(const[id,q]of Object.entries(S.cart)){if(!q)continue;(S.unit[id]||"c")==="c"?c+=q:u+=q}return{c,u}}
+const cartCount=()=>Object.values(S.cart).filter(q=>q>0).length;
+
+/* ---------- boot ---------- */
+async function start(){
+  if(BOOT.params.c&&BOOT.params.k&&S.mode==="customer"){
+    try{const r=await call("login",{c:BOOT.params.c,k:BOOT.params.k});S.token=r.token;LS.set("token",r.token);LS.set("mode","customer")}catch(e){S.loginErr=e.message}
+  }
+  render();
+}
+function render(){
+  if(!S.token) return renderLogin();
+  if(S.mode==="admin"){ if(!S.admin){loadAdmin();return spinner("טוען הזמנות…")} return renderAdmin() }
+  if(!S.data){loadCatalog();return spinner("טוען את הקטלוג…")}
+  renderCustomer();
+}
+function spinner(t){app.innerHTML=`<header class="top">${logoImg()}<div class="who"><b>${esc(BOOT.business)}</b></div></header><div class="spin">${t}</div>`}
+async function loadCatalog(){try{S.data=await call("catalog",{token:S.token});const ids=new Set(S.data.products.map(p=>p.id));for(const k in S.cart)if(!ids.has(k))delete S.cart[k];render()}catch(e){app.innerHTML=`<div class="login"><div class="err">${esc(e.message)}</div><button class="btn" onclick="location.reload()">נסה שוב</button></div>`}}
+async function loadAdmin(){try{S.admin=await call("adminData",{token:S.token});render()}catch(e){app.innerHTML=`<div class="login"><div class="err">${esc(e.message)}</div><button class="btn" onclick="location.reload()">נסה שוב</button></div>`}}
+
+/* ---------- login ---------- */
+function renderLogin(){
+  const isA=S.mode==="admin";
+  app.innerHTML=`<div class="login">
+    ${logoImg()}
+    <p>${isA?"כניסת מנהל":"הזמנת סחורה מ"+esc(BOOT.business)}</p>
+    ${S.loginErr?`<div class="err">${esc(S.loginErr)}</div>`:""}
+    ${isA?"":`<label class="f" for="lg1">קוד לקוח</label><input class="t" id="lg1" inputmode="numeric" autocomplete="username" value="${esc(LS.get("code")||"")}">`}
+    <label class="f" for="lg2">סיסמה</label>
+    <input class="t" id="lg2" type="password" inputmode="numeric" autocomplete="current-password">
+    <div class="btns"><button class="btn" id="lgo">כניסה</button></div>
+    <p class="note" style="margin-top:14px;text-align:center"><a href="#" id="sw" style="color:var(--muted)">${isA?"כניסת לקוח":"כניסת מנהל"}</a></p>
+  </div>`;
+  const go=async()=>{const b=document.getElementById("lgo");b.disabled=true;b.textContent="נכנס…";
+    try{ if(isA){const r=await call("adminLogin",{pass:document.getElementById("lg2").value});S.token=r.token}
+      else{const code=document.getElementById("lg1").value.trim();const r=await call("login",{code,pass:document.getElementById("lg2").value});S.token=r.token;LS.set("code",code)}
+      LS.set("token",S.token);LS.set("mode",S.mode);S.loginErr=null;render();
+    }catch(e){S.loginErr=e.message;renderLogin()}};
+  document.getElementById("lgo").onclick=go;
+  document.getElementById("lg2").onkeydown=e=>{if(e.key==="Enter")go()};
+  document.getElementById("sw").onclick=e=>{e.preventDefault();S.mode=isA?"customer":"admin";S.loginErr=null;renderLogin()};
+}
+
+/* ---------- customer ---------- */
+function renderCustomer(){
+  const c=S.data.customer,n=cartCount();let body="";
+  if(S.tab==="catalog")body=catalogView();else if(S.tab==="again")body=againView();else if(S.tab==="cart")body=cartView();else if(S.tab==="done")body=doneView();
+  const t=cartTotals();
+  app.innerHTML=`<header class="top">${logoImg()}<div class="who"><b>${esc(c.name)}</b><small>לקוח ${esc(c.code)}${c.addr?" · "+esc(c.addr):""}</small></div><div class="spacer"></div><button class="iconbtn" id="out">יציאה</button></header>
+  <main id="main">${body}</main>
+  ${n&&S.tab==="catalog"?`<button class="cartbar" id="gocart">לסיכום ההזמנה <span>${n} מוצרים · ${t.c} קרט׳${t.u?" + "+t.u+" יח׳":""}</span></button>`:""}
+  <nav class="tabs">
+    <button data-tab="catalog" ${S.tab==="catalog"?'aria-current="page"':""}><span class="i">▦</span>קטלוג</button>
+    <button data-tab="again" ${S.tab==="again"?'aria-current="page"':""}><span class="i">↻</span>הזמן שוב</button>
+    <button data-tab="cart" ${S.tab==="cart"?'aria-current="page"':""}><span class="i">🛒</span>ההזמנה שלי${n?`<span class="badge">${n}</span>`:""}</button>
+  </nav>`;
+  wireCustomer();
+  if(!S.promoSeen&&S.tab==="catalog"&&S.data.promos.length)showPromo();
+}
+function zonesPresent(){return ZONES.filter(z=>S.data.products.some(p=>p.cat===z))}
+function subsOf(z){return[...new Set(S.data.products.filter(p=>p.cat===z).map(p=>p.sub))]}
+function catalogView(){
+  const c=S.data.customer,q=S.q.trim(),zs=zonesPresent();
+  if(!zs.includes(S.zone))S.zone=zs[0];
+  const list=S.data.products.filter(p=>q?(p.name.includes(q)||p.item.includes(q)||p.barcode.includes(q)):(p.cat===S.zone&&(!S.sub||p.sub===S.sub)));
+  const zones=zs.map(z=>`<button class="zone" data-z="${z}" aria-pressed="${!q&&S.zone===z}">${z==="חד-פעמי וניקיון"?"חד-פעמי":z}<small>${S.data.products.filter(p=>p.cat===z).length} מוצרים</small></button>`).join("");
+  const chips=q?"":`<div class="chips"><button class="chip" data-sub="" aria-pressed="${!S.sub}">הכול</button>${subsOf(S.zone).map(s=>`<button class="chip" data-sub="${esc(s)}" aria-pressed="${S.sub===s}">${esc(s)}</button>`).join("")}</div>`;
+  return `${c.cutoff||c.days?`<div class="cutoff">⏰ <div>${c.cutoff?`הזמנה עד <b>${esc(c.cutoff)}</b>`:"הזמנה"}${c.days?` · ימי אספקה: ${esc(c.days)}`:""}</div></div>`:""}
+  <div class="zones" style="grid-template-columns:repeat(${zs.length},1fr)">${zones}</div>
+  <div class="searchrow"><input id="q" type="search" placeholder="חיפוש לפי שם, מק״ט או ברקוד" value="${esc(S.q)}" aria-label="חיפוש מוצר">
+    <label class="iconbtn" for="scan" style="display:flex;align-items:center">▮▯▮ ברקוד</label><input id="scan" type="file" accept="image/*" capture="environment" hidden></div>
+  ${chips}${q?`<p class="note">${list.length} תוצאות עבור "${esc(q)}"</p>`:""}
+  <div class="grid">${list.map(cardHTML).join("")||`<div class="empty">לא נמצא מוצר. נסה שם אחר, מק״ט או ברקוד.</div>`}</div>`;
+}
+const imgTag=(p,cls)=>p.img?`<img ${cls?`class="${cls}"`:""} src="${p.img}" alt="${esc(p.name)}" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=noimg>אין תמונה</div>'">`:`<div class="noimg">אין תמונה</div>`;
+function cardHTML(p){const q=S.cart[p.id]||0,un=S.unit[p.id]||"c";
+  return `<div class="card ${q?"on":""}"><button class="ph" data-open="${p.id}" aria-label="פרטי ${esc(p.name)}">${imgTag(p)}${p.tag?`<span class="tag">${esc(p.tag)}</span>`:""}</button>
+  <div class="body"><div class="nm">${esc(p.name)}</div><div class="meta">${p.item?"מק״ט "+p.item:""}${p.carton?` · ${p.carton} יח׳ בקרטון`:""}</div>
+  <div class="qty"><div class="step"><button data-inc="${p.id}" aria-label="הוסף">+</button><input data-qty="${p.id}" inputmode="numeric" value="${q||""}" placeholder="0" aria-label="כמות"><button data-dec="${p.id}" aria-label="הפחת">−</button></div>
+  <div class="unit" role="group" aria-label="יחידת הזמנה"><button data-unit="${p.id}" data-u="c" aria-pressed="${un==="c"}">קרטון</button><button data-unit="${p.id}" data-u="u" aria-pressed="${un==="u"}">יח׳</button></div></div></div></div>`}
+function againView(){
+  const o=S.data.orders;const PP=P();
+  if(!o.length)return `<h2>הזמן שוב</h2><div class="empty">עוד אין הזמנות קודמות. אחרי ההזמנה הראשונה תוכל לטעון אותה כאן בלחיצה.</div>`;
+  return `<h2>הזמן שוב</h2><p class="note">טוען הזמנה קודמת לסל. אפשר לשנות כמויות לפני השליחה.</p>`+o.map(x=>`<div class="panel"><div style="display:flex;align-items:center;gap:8px"><b>הזמנה ${x.no}</b>${pill(x.status)}<span class="meta" style="margin-inline-start:auto">${fmtD(x.at)}</span></div>
+    ${x.lines.slice(0,4).map(l=>`<div class="row"><div class="grow">${esc(l.name)}</div><div class="q">${l.q} ${l.unit==="קרטון"?"קרט׳":"יח׳"}</div></div>`).join("")}${x.lines.length>4?`<div class="note">ועוד ${x.lines.length-4} מוצרים</div>`:""}
+    <div class="btns"><button class="btn" data-reorder="${x.no}">טען את ההזמנה לסל</button>${x.pdf?`<a class="btn sec" style="text-align:center;text-decoration:none" href="${x.pdf}" target="_blank" rel="noopener">📄 טופס ההזמנה (PDF)</a>`:""}</div></div>`).join("");
+}
+function cartView(){
+  const PP=P(),ids=Object.keys(S.cart).filter(id=>S.cart[id]>0&&PP[id]);
+  if(!ids.length)return `<h2>ההזמנה שלי</h2><div class="empty">הסל ריק. בחר מוצרים בקטלוג או טען הזמנה קודמת ב"הזמן שוב".</div>`;
+  const t=cartTotals(),c=S.data.customer;
+  const byZone=ZONES.map(z=>{const zs=ids.filter(id=>PP[id].cat===z);if(!zs.length)return"";
+    return `<span class="zonehead zh-${z}">${z} · ${zs.length}</span>`+zs.map(id=>`<div class="row">${PP[id].img?`<img src="${PP[id].img}" alt="" referrerpolicy="no-referrer">`:""}<div class="grow"><div style="font-weight:600;font-size:14.5px">${esc(PP[id].name)}</div><div class="meta">${PP[id].item?"מק״ט "+PP[id].item:""}</div></div>
+      <div class="step" style="flex:0 0 112px"><button data-inc="${id}">+</button><input data-qty="${id}" inputmode="numeric" value="${S.cart[id]}" aria-label="כמות"><button data-dec="${id}">−</button></div><div class="q" style="width:42px">${(S.unit[id]||"c")==="c"?"קרט׳":"יח׳"}</div></div>`).join("")}).join("");
+  return `<h2>סיכום ההזמנה</h2>
+  <div class="panel"><div class="sum"><div><b>${ids.length}</b><small>מוצרים</small></div><div><b>${t.c}</b><small>קרטונים</small></div><div><b>${t.u}</b><small>יחידות</small></div></div>${c.days||c.cutoff?`<div class="note">${c.days?"אספקה: "+esc(c.days):""}${c.cutoff?" · הזמנה עד "+esc(c.cutoff):""}</div>`:""}</div>
+  <div class="panel">${byZone}</div>
+  <div class="panel"><label class="f" for="note" style="margin-top:0">הערות להזמנה</label><textarea id="note" placeholder="למשל: להביא עד 10 בבוקר, להחליף מוצר אם חסר">${esc(S.note)}</textarea>
+  <label class="f">הערה קולית</label>
+  <div class="linkrow"><button class="btn sec" id="rec" style="flex:1">🎙 ${S.voice?"הקלטה מוכנה ("+Math.round(S.voice.size/1024)+" KB) · הקלט מחדש":"הקלט הודעה"}</button><label class="btn sec" for="voiceFile" style="flex:0 0 auto;width:auto">צרף קובץ</label></div>
+  <input id="voiceFile" type="file" accept="audio/*" capture hidden>${S.voice?`<button class="mini" id="rmVoice" style="margin-top:6px">הסר הקלטה</button>`:""}</div>
+  <div class="btns"><button class="btn" id="send" ${S.busy?"disabled":""}>${S.busy?"שולח…":"שלח הזמנה"}</button><button class="btn sec" data-tab="catalog">המשך לבחור מוצרים</button></div>`;
+}
+function doneView(){
+  const o=S.last,c=S.data.customer,ow=S.data.owner;
+  const text=`הזמנה ${o.no} מ${c.name} (${c.code})\n${fmtD(o.at)} ${fmtT(o.at)}\n`+o.lines.map(l=>`• ${l.name} – ${l.q} ${l.u==="c"?"קרט׳":"יח׳"}${l.item?" (מק״ט "+l.item+")":""}`).join("\n")+(o.note?`\nהערות: ${o.note}`:"")+`\n\n📄 טופס ההזמנה: ${o.pdfUrl}`;
+  return `<div class="ok-hero"><div class="tick">✓</div><h2>ההזמנה התקבלה</h2><div class="note">הזמנה מס׳ ${o.no} · ${fmtD(o.at)} ${fmtT(o.at)}</div></div>
+  <div class="panel"><div class="sum"><div><b>${o.count}</b><small>מוצרים</small></div><div><b>${o.cartons}</b><small>קרטונים</small></div><div><b>${o.units}</b><small>יחידות</small></div></div>
+  <p class="note" style="margin:6px 0 0">ההזמנה נשלחה ל${esc(BOOT.business)} במייל, עם טופס PDF.</p></div>
+  <div class="btns">${ow.wa?`<a class="btn wa" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="https://wa.me/${ow.wa}?text=${encodeURIComponent(text)}">שלח גם בוואטסאפ</a>`:""}
+  <a class="btn sec" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="${o.pdfUrl}">📄 פתח / הדפס את טופס ההזמנה</a>
+  <button class="btn sec" data-tab="catalog">חזרה לקטלוג</button></div>`;
+}
+function showPromo(){S.promoSeen=true;const pr=S.data.promos[0],p=P()[pr.id];
+  const m=document.createElement("div");m.className="center";m.innerHTML=`<div class="promo" role="dialog"><span class="kick">מבצע</span><h2 style="margin-top:10px">${esc(pr.title)}</h2>${p&&p.img?`<img src="${p.img}" alt="" referrerpolicy="no-referrer">`:""}<p class="note">${esc(pr.text||"")}</p>
+  <div class="btns">${p?`<button class="btn" id="pAdd">הוסף קרטון להזמנה</button>`:""}<button class="btn sec" id="pX">סגור</button></div></div>`;app.appendChild(m);
+  const a=m.querySelector("#pAdd");if(a)a.onclick=()=>{S.cart[p.id]=(S.cart[p.id]||0)+1;save();m.remove();render();toast("נוסף קרטון להזמנה")};m.querySelector("#pX").onclick=()=>m.remove()}
+function openDetail(id){const p=P()[id],q=S.cart[id]||0,un=S.unit[id]||"c";
+  const m=document.createElement("div");m.className="modal";m.innerHTML=`<div class="sheet" role="dialog"><button class="x" aria-label="סגור">✕</button><h2 style="margin-top:4px">${esc(p.name)}</h2>
+  ${p.img?`<img class="big" src="${p.img.replace("sz=w400","sz=w900")}" alt="${esc(p.name)}" referrerpolicy="no-referrer">`:""}
+  <dl class="dl"><dt>מק״ט</dt><dd>${p.item||"—"}</dd><dt>ברקוד</dt><dd>${p.barcode||"—"}</dd><dt>יח׳ בקרטון</dt><dd>${p.carton||"—"}</dd><dt>מחלקה</dt><dd>${esc(p.cat)} · ${esc(p.sub)}</dd></dl>
+  <div class="qty"><div class="step"><button data-inc="${id}">+</button><input data-qty="${id}" inputmode="numeric" value="${q||""}" placeholder="0"><button data-dec="${id}">−</button></div>
+  <div class="unit"><button data-unit="${id}" data-u="c" aria-pressed="${un==="c"}">קרטון</button><button data-unit="${id}" data-u="u" aria-pressed="${un==="u"}">יח׳</button></div></div>
+  <div class="btns"><button class="btn" id="dOk">סיום</button></div></div>`;app.appendChild(m);
+  const close=()=>{m.remove();keepScroll(render)};m.querySelector(".x").onclick=close;m.querySelector("#dOk").onclick=close;m.onclick=e=>{if(e.target===m)close()};
+  wireQty(m,()=>{m.querySelector(`[data-qty="${id}"]`).value=S.cart[id]||"";m.querySelectorAll("[data-unit]").forEach(b=>b.setAttribute("aria-pressed",(S.unit[id]||"c")===b.dataset.u))})}
+function wireQty(root,after){
+  root.querySelectorAll("[data-inc]").forEach(b=>b.onclick=()=>{const id=b.dataset.inc;S.cart[id]=(S.cart[id]||0)+1;save();after()});
+  root.querySelectorAll("[data-dec]").forEach(b=>b.onclick=()=>{const id=b.dataset.dec;S.cart[id]=Math.max(0,(S.cart[id]||0)-1);save();after()});
+  root.querySelectorAll("[data-qty]").forEach(i=>i.onchange=()=>{const v=parseInt(i.value,10);S.cart[i.dataset.qty]=isNaN(v)||v<0?0:v;save();after()});
+  root.querySelectorAll("[data-unit]").forEach(b=>b.onclick=()=>{S.unit[b.dataset.unit]=b.dataset.u;save();after()})}
+function keepScroll(fn){const m=document.getElementById("main"),y=m?m.scrollTop:0;fn();const n=document.getElementById("main");if(n)n.scrollTop=y}
+let recorder=null,chunks=[];
+function wireCustomer(){
+  const main=document.getElementById("main");
+  document.getElementById("out").onclick=()=>logout();
+  app.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{S.tab=b.dataset.tab;render();document.getElementById("main").scrollTop=0});
+  const gc=document.getElementById("gocart");if(gc)gc.onclick=()=>{S.tab="cart";render()};
+  main.querySelectorAll("[data-z]").forEach(b=>b.onclick=()=>{S.zone=b.dataset.z;S.sub=null;S.q="";render()});
+  main.querySelectorAll("[data-sub]").forEach(b=>b.onclick=()=>{S.sub=b.dataset.sub||null;keepScroll(render)});
+  main.querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>openDetail(b.dataset.open));
+  wireQty(main,()=>keepScroll(render));
+  const q=document.getElementById("q");if(q)q.oninput=()=>{S.q=q.value;const pos=q.selectionStart;render();const n=document.getElementById("q");n.focus();n.setSelectionRange(pos,pos)};
+  const sc=document.getElementById("scan");if(sc)sc.onchange=async()=>{const f=sc.files[0];if(!f)return;
+    if(!("BarcodeDetector" in window)){toast("הסורק לא נתמך בטלפון הזה. הקלד את הברקוד בחיפוש.");return}
+    try{const r=await new BarcodeDetector({formats:["ean_13","ean_8","upc_a"]}).detect(await createImageBitmap(f));if(!r.length){toast("לא זוהה ברקוד. צלם מקרוב ובאור טוב.");return}
+      const code=r[0].rawValue,p=S.data.products.find(x=>x.barcode===code);if(p){S.cart[p.id]=(S.cart[p.id]||0)+1;save();render();toast("נוסף: "+p.name)}else{S.q=code;render();toast("ברקוד "+code+" לא נמצא בקטלוג")}}catch(e){toast("לא הצלחתי לקרוא את התמונה")}};
+  main.querySelectorAll("[data-reorder]").forEach(b=>b.onclick=()=>{const o=S.data.orders.find(x=>x.no==+b.dataset.reorder),PP=P();let miss=0;
+    o.lines.forEach(l=>{const p=Object.values(PP).find(x=>x.item&&x.item===l.item)||Object.values(PP).find(x=>x.barcode&&x.barcode===l.barcode);if(p){S.cart[p.id]=l.q;S.unit[p.id]=l.unit==="יחידה"?"u":"c"}else miss++});save();S.tab="cart";render();toast(miss?`נטען. ${miss} מוצרים כבר לא בקטלוג.`:"ההזמנה הקודמת נטענה לסל")});
+  const note=document.getElementById("note");if(note)note.oninput=()=>S.note=note.value;
+  const vf=document.getElementById("voiceFile");if(vf)vf.onchange=()=>{const f=vf.files[0];if(f){if(f.size>8e6){toast("הקובץ גדול מדי (עד 8MB)");return}S.voice=f;keepScroll(render)}};
+  const rm=document.getElementById("rmVoice");if(rm)rm.onclick=()=>{S.voice=null;keepScroll(render)};
+  const rec=document.getElementById("rec");if(rec)rec.onclick=async()=>{
+    if(recorder&&recorder.state==="recording"){recorder.stop();return}
+    try{const st=await navigator.mediaDevices.getUserMedia({audio:true});chunks=[];recorder=new MediaRecorder(st);
+      recorder.ondataavailable=e=>chunks.push(e.data);recorder.onstop=()=>{st.getTracks().forEach(t=>t.stop());const b=new Blob(chunks,{type:recorder.mimeType||"audio/webm"});b.name="הקלטה."+((recorder.mimeType||"").includes("mp4")?"m4a":"webm");S.voice=b;keepScroll(render)};
+      recorder.start();rec.textContent="⏹ עצור הקלטה";rec.style.background="#fdecea"}catch(e){toast("אין גישה למיקרופון. אפשר לצרף קובץ במקום.")}};
+  const send=document.getElementById("send");if(send)send.onclick=sendOrder;
+}
+async function sendOrder(){
+  const PP=P(),lines=Object.keys(S.cart).filter(id=>S.cart[id]>0&&PP[id]).map(id=>[id,S.cart[id],S.unit[id]||"c"]);
+  if(!lines.length)return;S.busy=true;keepScroll(render);
+  try{let voice=null;if(S.voice){const b64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(",")[1]);r.onerror=rej;r.readAsDataURL(S.voice)});voice={b64,mime:S.voice.type||"audio/mpeg",name:S.voice.name||"הקלטה"}}
+    const r=await call("submit",{token:S.token,lines,note:S.note,voice});
+    S.last={...r,note:S.note,lines:lines.map(([id,q,u])=>({name:PP[id].name,item:PP[id].item,q,u}))};
+    S.cart={};S.unit={};save();S.note="";S.voice=null;S.busy=false;S.tab="done";render();
+    call("catalog",{token:S.token}).then(d=>{S.data=d}).catch(()=>{});
+  }catch(e){S.busy=false;keepScroll(render);toast("ההזמנה לא נשלחה: "+e.message)}
+}
+
+/* ---------- admin ---------- */
+const PUBLIC_URL_FALLBACK="https://shahar1234566-source.github.io/neto/";
+const pill=s=>`<span class="pill ${s==="חדשה"?"p-new":s==="אושרה"||s==="סופקה"?"p-ok":"p-out"}">${esc(s)}</span>`;
+const DAYS=["א","ב","ג","ד","ה","ו","ש"];
+const ATABS=[["orders","☰","הזמנות"],["customers","👥","לקוחות"],["products","📦","מוצרים"],["promos","🏷","מבצעים"],["settings","⚙","הגדרות"]];
+S.af=S.af||{st:"פעילות",oq:"",cq:"",pq:"",pz:"הכול",hidden:false};
+const A=()=>S.admin;
+const pubUrl=()=>(A().settings["כתובת האפליקציה"]||PUBLIC_URL_FALLBACK);
+const personal=c=>`${pubUrl()}?c=${c["קוד"]}&k=${c["מפתח אישי"]||""}`;
+const waHref=(wa,msg)=>`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`;
+async function adminSave(action,payload,okMsg){try{S.admin=await call(action,Object.assign({token:S.token},payload));closeModal();keepScroll(render);if(okMsg)toast(okMsg);return true}catch(e){toast(e.message);return false}}
+function closeModal(){document.querySelectorAll(".modal,.center").forEach(m=>m.remove())}
+function confirmBox(text,yes,onYes){const m=document.createElement("div");m.className="center";m.innerHTML=`<div class="promo" style="text-align:start"><h2 style="margin-top:0">${esc(text)}</h2><div class="btns"><button class="btn" id="cy" style="background:#b3271e">${esc(yes)}</button><button class="btn sec" id="cn">ביטול</button></div></div>`;app.appendChild(m);m.querySelector("#cn").onclick=()=>m.remove();m.querySelector("#cy").onclick=()=>{m.remove();onYes()}}
+function sheet(title,body){closeModal();const m=document.createElement("div");m.className="modal";m.innerHTML=`<div class="sheet" role="dialog" aria-label="${esc(title)}"><button class="x" aria-label="סגור">✕</button><h2 style="margin-top:4px">${esc(title)}</h2>${body}</div>`;app.appendChild(m);m.querySelector(".x").onclick=()=>m.remove();return m}
+const fld=(label,id,val,attrs="")=>`<label class="f" for="${id}">${label}</label><input class="t" id="${id}" value="${esc(val??"")}" ${attrs}>`;
+const dayPicker=(id,val)=>{const on=String(val||"").replace(/['׳"]/g,"").split(/[,\s]+/).map(x=>x.trim().charAt(0));return `<div class="chips" id="${id}" style="flex-wrap:wrap">${DAYS.map(d=>`<button type="button" class="chip" data-day="${d}" aria-pressed="${on.includes(d)}">${d}׳</button>`).join("")}</div>`};
+const readDays=(m,id)=>[...m.querySelectorAll(`#${id} [data-day]`)].filter(b=>b.getAttribute("aria-pressed")==="true").map(b=>b.dataset.day).join(",");
+const hourSelect=(id,val,emptyLabel)=>`<select id="${id}"><option value="">${emptyLabel||"ברירת מחדל"}</option>${Array.from({length:17},(_,i)=>i+6).map(h=>`<option value="${h}" ${String(val)===String(h)?"selected":""}>${h}:00</option>`).join("")}</select>`;
+function wirePickers(m){m.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>b.setAttribute("aria-pressed",b.getAttribute("aria-pressed")!=="true"))}
+
+function renderAdmin(){
+  if(!A().settings){app.innerHTML=`<header class="top">${logoImg()}<div class="who"><b>ניהול</b></div><div class="spacer"></div><button class="iconbtn" id="out">יציאה</button></header><div class="login"><div class="err">מסך הניהול החדש מחכה לעדכון הקוד בשרת.</div><p>פתח את מדריך ההתקנה ב-Claude, העתק את הקוד החדש ל-Apps Script ופרסם גרסה חדשה. ההזמנות של הלקוחות ממשיכות לעבוד כרגיל.</p></div>`;document.getElementById("out").onclick=()=>logout();return}
+  const a=A(),newN=a.orders.filter(o=>o.status==="חדשה").length;let body="";
+  const tab=S.adminTab;
+  if(tab==="orders")body=S.openOrder?orderDetail(a.orders.find(o=>o.no===S.openOrder)):ordersView();
+  else if(tab==="customers")body=customersView();else if(tab==="products")body=productsView();else if(tab==="promos")body=promosView();else body=settingsView();
+  app.innerHTML=`<header class="top">${logoImg()}<div class="who"><b>ניהול</b><small>${esc(a.business)}</small></div><div class="spacer"></div><button class="iconbtn" id="refresh" aria-label="רענן">⟳</button><button class="iconbtn" id="out">יציאה</button></header>
+  <main id="main">${body}</main>
+  <nav class="tabs">${ATABS.map(([k,i,l])=>`<button data-at="${k}" ${tab===k?'aria-current="page"':""}><span class="i">${i}</span>${l}${k==="orders"&&newN?`<span class="badge">${newN}</span>`:""}</button>`).join("")}</nav>`;
+  wireAdmin();
+}
+
+/* --- orders --- */
+function ordersView(){
+  const a=A(),f=S.af,today=a.orders.filter(o=>new Date(o.at).toDateString()===new Date().toDateString());
+  const groups={"פעילות":o=>o.status==="חדשה"||o.status==="אושרה","חדשה":o=>o.status==="חדשה","סופקה":o=>o.status==="סופקה","בוטלה":o=>o.status==="בוטלה","הכול":()=>true};
+  let list=a.orders.filter(groups[f.st]);if(f.oq.trim())list=list.filter(o=>o.custName.includes(f.oq.trim())||String(o.no).includes(f.oq.trim())||o.cust.includes(f.oq.trim()));
+  const due=a.due||[],missing=due.filter(d=>!d.ordered);
+  return `<div class="sum" style="margin-top:0"><div><b>${a.orders.filter(o=>o.status==="חדשה").length}</b><small>ממתינות לאישור</small></div><div><b>${today.length}</b><small>הזמנות היום</small></div><div><b>${missing.length}</b><small>עוד לא הזמינו</small></div></div>
+  ${due.length?`<div class="panel"><b>צריכים להזמין היום</b>${due.map(d=>`<div class="row"><div class="grow">${esc(d.name)}<div class="meta">תזכורת ב-${d.hour}:00</div></div>${d.ordered?`<span class="pill p-ok">הזמין ✓</span>`:d.wa?`<a class="mini wa" target="_blank" rel="noopener" href="${waHref(d.wa,`שלום ${d.name}, תזכורת מ${a.business}: עוד לא קיבלנו ממך הזמנה היום 🙂\n${pubUrl()}?c=${d.code}&k=${d.key}`)}">תזכורת</a>`:`<span class="pill p-new">עוד לא</span>`}</div>`).join("")}</div>`:""}
+  <div class="searchrow"><input id="oq" type="search" placeholder="חיפוש לפי לקוח או מספר הזמנה" value="${esc(f.oq)}"></div>
+  <div class="chips">${Object.keys(groups).map(g=>`<button class="chip" data-ost="${g}" aria-pressed="${f.st===g}">${g==="חדשה"?"חדשות":g==="סופקה"?"סופקו":g==="בוטלה"?"בוטלו":g}</button>`).join("")}</div>
+  ${list.length?list.map(o=>`<button class="panel" data-oo="${o.no}" style="width:100%;text-align:start;display:block"><div style="display:flex;align-items:center;gap:8px"><b style="font-family:var(--f-display)">${esc(o.custName)}</b>${pill(o.status)}<span class="meta" style="margin-inline-start:auto">#${o.no}</span></div>
+    <div class="meta">${fmtD(o.at)} · ${fmtT(o.at)} · ${o.lines.length} מוצרים · ${o.cartons} קרט׳${o.units?` + ${o.units} יח׳`:""}${o.note?" · יש הערה":""}${o.voice?" · 🎙":""}</div></button>`).join(""):`<div class="empty">אין הזמנות ברשימה הזו.</div>`}`;
+}
+const custByCode=code=>A().customers.find(c=>c["קוד"]===code)||{};
+function orderDetail(o){const c=custByCode(o.cust);
+  const rows=ZONES.concat([""]).map(z=>{const ls=o.lines.filter(l=>z?l.cat===z:!ZONES.includes(l.cat));if(!ls.length)return"";
+    return(z?`<tr><td colspan="3"><span class="zonehead zh-${z}" style="margin:4px 0">${z}</span></td></tr>`:"")+ls.map(l=>`<tr><td>${esc(l.item)}</td><td>${esc(l.name)}</td><td style="white-space:nowrap;font-weight:700">${l.q} ${l.unit==="קרטון"?"קרט׳":"יח׳"}${l.unit==="קרטון"&&l.carton?` <span class="meta">(${l.q*l.carton} יח׳)</span>`:""}</td></tr>`).join("")}).join("");
+  const next={"חדשה":["אושרה","אשר הזמנה"],"אושרה":["סופקה","סמן כסופקה"]}[o.status];
+  return `<button class="iconbtn" id="back">→ כל ההזמנות</button>
+  <div class="panel" style="margin-top:10px"><div style="display:flex;align-items:center;gap:8px"><h2 style="margin:0">הזמנה #${o.no}</h2>${pill(o.status)}</div>
+  <dl class="dl"><dt>לקוח</dt><dd>${esc(o.custName)} (${o.cust})</dd><dt>איש קשר</dt><dd>${esc(c["איש קשר"])||"—"}</dd><dt>טלפון</dt><dd>${esc(c["טלפון"])||"—"}</dd><dt>כתובת</dt><dd>${esc(c["כתובת"])||"—"}</dd><dt>התקבלה</dt><dd>${fmtD(o.at)} · ${fmtT(o.at)}</dd></dl>
+  <div class="sum"><div><b>${o.lines.length}</b><small>מוצרים</small></div><div><b>${o.cartons}</b><small>קרטונים</small></div><div><b>${o.units}</b><small>יחידות</small></div></div></div>
+  <div class="panel"><table class="tbl"><thead><tr><th>מק״ט</th><th>מוצר</th><th>כמות</th></tr></thead><tbody>${rows}</tbody></table></div>
+  ${o.note||o.voice?`<div class="panel"><b>הערות הלקוח</b><p style="margin:4px 0">${esc(o.note)||"—"}</p>${o.voice?`<a class="mini" href="${o.voice}" target="_blank" rel="noopener">🎙 השמע הערה קולית</a>`:""}</div>`:""}
+  <div class="btns">${next?`<button class="btn" data-st="${next[0]}">${next[1]}</button>`:""}
+    <button class="btn sec" id="pdf">📄 טופס ההזמנה (PDF) להדפסה</button>
+    ${c._wa?`<a class="btn wa" style="text-align:center;text-decoration:none" target="_blank" rel="noopener" href="${waHref(c._wa,`שלום ${o.custName}, הזמנה ${o.no} אושרה. תודה, ${A().business}`)}">שלח ללקוח אישור בוואטסאפ</a>`:""}
+    <button class="btn sec" id="copy">העתק מק״ט וכמויות להקלדה במערכת</button>
+    ${o.status!=="בוטלה"&&o.status!=="סופקה"?`<button class="btn sec" data-st="בוטלה" style="color:#b3271e">בטל הזמנה</button>`:o.status==="בוטלה"?`<button class="btn sec" data-st="חדשה">החזר להזמנה פעילה</button>`:""}</div>`}
+
+/* --- customers --- */
+function customersView(){const a=A(),q=S.af.cq.trim();
+  let list=a.customers.slice().sort((x,y)=>(y._access-x._access)||String(x["שם"]).localeCompare(String(y["שם"]),"he"));
+  if(q)list=list.filter(c=>String(c["שם"]).includes(q)||String(c["קוד"]).includes(q)||String(c["טלפון"]||"").replace(/\D/g,"").includes(q.replace(/\D/g,"")||"~")||String(c["איש קשר"]||"").includes(q));
+  const on=a.customers.filter(c=>c._access).length;
+  return `<div style="display:flex;align-items:center;gap:8px"><h2 style="margin:6px 0">לקוחות</h2><span class="meta">${on} עם גישה מתוך ${a.customers.length}</span></div>
+  <div class="searchrow"><input id="cq" type="search" placeholder="חיפוש לפי שם, קוד, טלפון" value="${esc(S.af.cq)}"><button class="iconbtn" id="newCust" style="white-space:nowrap">+ לקוח חדש</button></div>
+  <div class="panel">${list.map(c=>`<div class="row"><button class="grow" data-ce="${c._row}" style="all:unset;flex:1;min-width:0;cursor:pointer"><b>${esc(c["שם"])}</b><div class="meta">${c["קוד"]}${c["איש קשר"]?" · "+esc(c["איש קשר"]):""}${c["טלפון"]?" · "+esc(c["טלפון"]):""}${c["ימי אספקה"]?" · אספקה "+esc(c["ימי אספקה"]):""}</div></button>
+    <label class="toggle small"><input type="checkbox" data-acc="${c._row}" ${c._access?"checked":""}> גישה</label>
+    ${c._access&&c._wa?`<a class="mini wa" target="_blank" rel="noopener" href="${waHref(c._wa,`שלום ${c["שם"]}, מעכשיו אפשר להזמין מ${a.business} באפליקציה 👇\n${personal(c)}\n\nלאייקון במסך הבית: שיתוף ← "הוסף למסך הבית".`)}">קישור</a>`:""}</div>`).join("")||`<div class="empty">לא נמצאו לקוחות.</div>`}</div>`}
+function editCustomer(row){const c=row?A().customers.find(x=>x._row===row):{"גישה":true};
+  const m=sheet(row?c["שם"]:"לקוח חדש",`
+  ${fld("שם הלקוח","c_name",c["שם"])}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px"><div>${fld("קוד לקוח","c_code",c["קוד"],'inputmode="numeric"')}</div><div>${fld("רשת","c_chain",c["רשת"])}</div>
+  <div>${fld("איש קשר","c_contact",c["איש קשר"])}</div><div>${fld("טלפון","c_phone",c["טלפון"],'inputmode="tel"')}</div>
+  <div>${fld("וואטסאפ","c_wa",c["וואטסאפ"],'inputmode="tel" placeholder="אם שונה מהטלפון"')}</div><div>${fld("מייל","c_mail",c["מייל"],'inputmode="email"')}</div></div>
+  ${fld("כתובת","c_addr",c["כתובת"])}
+  <label class="toggle" style="margin-top:12px"><input type="checkbox" id="c_acc" ${truthy(c["גישה"])?"checked":""}> יש גישה לאפליקציה</label>
+  <label class="f">ימי אספקה</label>${dayPicker("c_days",c["ימי אספקה"])}
+  <label class="f">ימי תזכורת <span class="meta">(אם לא מסמנים: יום לפני האספקה)</span></label>${dayPicker("c_rdays",c["ימי תזכורת"])}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px"><div><label class="f" for="c_rhour">שעת תזכורת</label>${hourSelect("c_rhour",c["שעת תזכורת"],"לפי ההגדרות")}</div><div>${fld("שעת סגירה","c_cut",c["שעת סגירה"],'placeholder="למשל 14:00"')}</div></div>
+  <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end"><div>${fld("סיסמה","c_pass",c["סיסמה"],'inputmode="numeric"')}</div><button class="iconbtn" id="c_gen" style="height:44px">סיסמה חדשה</button></div>
+  ${fld("הערה","c_note",c["הערה"])}
+  ${row?`<label class="f">קישור אישי (כניסה בלי סיסמה)</label><div class="linkrow"><input class="t" readonly value="${esc(personal(c))}" style="flex:1;direction:ltr;font-size:12px"><button class="iconbtn" id="c_copy">העתק</button></div>`:""}
+  <div class="btns"><button class="btn" id="c_save">שמור</button>${row?`<button class="btn sec" id="c_del" style="color:#b3271e">מחק לקוח</button>`:""}</div>`);
+  wirePickers(m);
+  m.querySelector("#c_gen").onclick=()=>{m.querySelector("#c_pass").value=String(1000+Math.floor(Math.random()*9000))};
+  const cp=m.querySelector("#c_copy");if(cp)cp.onclick=async()=>{try{await navigator.clipboard.writeText(personal(c));toast("הקישור הועתק")}catch(e){toast("סמן את הקישור והעתק ידנית")}};
+  m.querySelector("#c_save").onclick=async e=>{const v=id=>m.querySelector("#"+id).value.trim();
+    if(!v("c_name")){toast("חסר שם לקוח");return} e.target.disabled=true;e.target.textContent="שומר…";
+    const ok=await adminSave("saveRow",{kind:"customers",row:row||null,data:{"שם":v("c_name"),"קוד":v("c_code"),"רשת":v("c_chain"),"איש קשר":v("c_contact"),"טלפון":v("c_phone"),"וואטסאפ":v("c_wa")||v("c_phone"),"מייל":v("c_mail"),"כתובת":v("c_addr"),"גישה":m.querySelector("#c_acc").checked,"ימי אספקה":readDays(m,"c_days"),"ימי תזכורת":readDays(m,"c_rdays"),"שעת תזכורת":v("c_rhour"),"שעת סגירה":v("c_cut"),"סיסמה":v("c_pass"),"הערה":v("c_note")}},"הלקוח נשמר");
+    if(!ok){e.target.disabled=false;e.target.textContent="שמור"}};
+  const d=m.querySelector("#c_del");if(d)d.onclick=()=>confirmBox(`למחוק את ${c["שם"]}?`,"מחק",()=>adminSave("deleteRow",{kind:"customers",row,check:c["קוד"]},"הלקוח נמחק"));
+}
+const truthy=x=>x===true||/^(true|כן|1|v|✓)$/i.test(String(x??"").trim());
+
+/* --- products --- */
+const allSubs=()=>[...new Set(A().products.map(p=>p["תת-קטגוריה"]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"he"));
+function productsView(){const a=A(),f=S.af,q=f.pq.trim();
+  let list=a.products.filter(p=>(f.hidden||p._active)&&(f.pz==="הכול"||p["קטגוריה"]===f.pz));
+  if(q)list=list.filter(p=>String(p["שם מוצר"]).includes(q)||String(p['מק"ט']).includes(q)||String(p["ברקוד"]).includes(q)||String(p["תת-קטגוריה"]).includes(q));
+  const hiddenN=a.products.filter(p=>!p._active).length;
+  return `<div style="display:flex;align-items:center;gap:8px"><h2 style="margin:6px 0">מוצרים</h2><span class="meta">${a.products.length-hiddenN} פעילים · ${hiddenN} מוסתרים</span></div>
+  <div class="searchrow"><input id="pq" type="search" placeholder="חיפוש לפי שם, מק״ט, ברקוד" value="${esc(f.pq)}"><button class="iconbtn" id="newProd" style="white-space:nowrap">+ מוצר חדש</button></div>
+  <div class="chips">${["הכול"].concat(ZONES).map(z=>`<button class="chip" data-pz="${z}" aria-pressed="${f.pz===z}">${z}</button>`).join("")}<button class="chip" id="showHidden" aria-pressed="${f.hidden}">${f.hidden?"מציג גם מוסתרים":"הצג מוסתרים"}</button></div>
+  <p class="note">${list.length} מוצרים${list.length>120?" · מוצגים 120 הראשונים, אפשר לחפש":""}</p>
+  <div class="panel">${list.slice(0,120).map(p=>`<div class="row" style="${p._active?"":"opacity:.55"}">${p._img?`<img src="${p._img}" alt="" referrerpolicy="no-referrer" loading="lazy">`:`<div class="noimg" style="width:44px;height:44px;flex:0 0 44px;font-size:10px">אין</div>`}
+    <button data-pe="${p._row}" style="all:unset;flex:1;min-width:0;cursor:pointer"><div style="font-weight:600;font-size:14.5px">${esc(p["שם מוצר"])||"(בלי שם)"}</div><div class="meta">${p['מק"ט']||"אין מק״ט"} · ${esc(p["תת-קטגוריה"]||"")}${p["יח' בקרטון"]?` · ${p["יח' בקרטון"]} בקרטון`:""}${p["תגית"]?` · ${esc(p["תגית"])}`:""}</div></button>
+    <label class="toggle small"><input type="checkbox" data-pact="${p._row}" ${p._active?"checked":""}> פעיל</label></div>`).join("")||`<div class="empty">לא נמצאו מוצרים.</div>`}</div>`}
+async function resizeImage(file){const bmp=await createImageBitmap(file);const k=Math.min(1,600/Math.max(bmp.width,bmp.height));const cv=document.createElement("canvas");cv.width=Math.round(bmp.width*k);cv.height=Math.round(bmp.height*k);const g=cv.getContext("2d");g.fillStyle="#fff";g.fillRect(0,0,cv.width,cv.height);g.drawImage(bmp,0,0,cv.width,cv.height);return cv.toDataURL("image/jpeg",0.85).split(",")[1]}
+function editProduct(row){const p=row?A().products.find(x=>x._row===row):{"קטגוריה":S.af.pz!=="הכול"?S.af.pz:"קפוא","פעיל":true};
+  let newImg=null;
+  const m=sheet(row?(p["שם מוצר"]||"מוצר"):"מוצר חדש",`
+  <div style="display:flex;gap:12px;align-items:center"><div id="p_imgbox" style="width:110px;height:110px;flex:0 0 110px;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff">${p._img?`<img src="${p._img}" style="width:100%;height:100%;object-fit:contain" referrerpolicy="no-referrer">`:`<div class="noimg">אין תמונה</div>`}</div>
+  <div style="flex:1"><label class="btn sec" for="p_file" style="display:block;text-align:center">📷 ${p._img?"החלף תמונה":"הוסף תמונה"}</label><input type="file" id="p_file" accept="image/*" hidden><p class="note small" style="margin-top:6px">אפשר לצלם או לבחור מהגלריה</p></div></div>
+  ${fld("שם המוצר","p_name",p["שם מוצר"])}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px"><div>${fld("מק״ט","p_item",p['מק"ט'],'inputmode="numeric"')}</div><div>${fld("ברקוד","p_bc",p["ברקוד"],'inputmode="numeric"')}</div>
+  <div><label class="f" for="p_cat">קטגוריה</label><select id="p_cat">${ZONES.map(z=>`<option ${p["קטגוריה"]===z?"selected":""}>${z}</option>`).join("")}</select></div>
+  <div>${fld("יח׳ בקרטון","p_ct",p["יח' בקרטון"],'inputmode="numeric"')}</div></div>
+  ${fld("תת-קטגוריה","p_sub",p["תת-קטגוריה"],'list="subsList" placeholder="בחר או כתוב חדשה"')}<datalist id="subsList">${allSubs().map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
+  <label class="f" for="p_tag">תגית</label><select id="p_tag">${["","חדש","חסר זמנית","מבצע"].map(t=>`<option value="${t}" ${(p["תגית"]||"")===t?"selected":""}>${t||"בלי תגית"}</option>`).join("")}</select>
+  <label class="toggle" style="margin-top:12px"><input type="checkbox" id="p_act" ${truthy(p["פעיל"])?"checked":""}> פעיל (מוצג ללקוחות)</label>
+  <div class="btns"><button class="btn" id="p_save">שמור</button>${row?`<button class="btn sec" id="p_del" style="color:#b3271e">מחק מוצר</button>`:""}</div>`);
+  m.querySelector("#p_file").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{newImg=await resizeImage(f);m.querySelector("#p_imgbox").innerHTML=`<img src="data:image/jpeg;base64,${newImg}" style="width:100%;height:100%;object-fit:contain">`}catch(err){toast("לא הצלחתי לקרוא את התמונה")}};
+  m.querySelector("#p_save").onclick=async e=>{const v=id=>m.querySelector("#"+id).value.trim();
+    if(!v("p_name")){toast("חסר שם מוצר");return} const b=e.target;b.disabled=true;b.textContent="שומר…";
+    const data={"שם מוצר":v("p_name"),'מק"ט':v("p_item"),"ברקוד":v("p_bc"),"קטגוריה":v("p_cat"),"תת-קטגוריה":v("p_sub"),"יח' בקרטון":v("p_ct")?Number(v("p_ct")):"","תגית":v("p_tag"),"פעיל":m.querySelector("#p_act").checked};
+    try{if(newImg){b.textContent="מעלה תמונה…";const r=await call("uploadImage",{token:S.token,b64:newImg,name:v("p_item")||("p"+Date.now())});data["מזהה תמונה"]=r.id;data["תמונה"]=r.name}}catch(err){toast("העלאת התמונה נכשלה: "+err.message);b.disabled=false;b.textContent="שמור";return}
+    const ok=await adminSave("saveRow",{kind:"products",row:row||null,data},"המוצר נשמר");if(!ok){b.disabled=false;b.textContent="שמור"}};
+  const d=m.querySelector("#p_del");if(d)d.onclick=()=>confirmBox(`למחוק את "${p["שם מוצר"]}"? אפשר גם רק להסתיר אותו (פעיל = כבוי).`,"מחק לגמרי",()=>adminSave("deleteRow",{kind:"products",row,check:p['מק"ט']||""},"המוצר נמחק"));
+}
+
+/* --- promos --- */
+function promosView(){const a=A();
+  return `<div style="display:flex;align-items:center;gap:8px"><h2 style="margin:6px 0">מבצעים</h2><div class="spacer" style="flex:1"></div><button class="iconbtn" id="newPromo">+ מבצע חדש</button></div>
+  <p class="note">המבצע הפעיל הראשון קופץ ללקוח כשהוא נכנס לאפליקציה.</p>
+  <div class="panel">${a.promos.map(pr=>{const p=a.products.find(x=>String(x['מק"ט'])===String(pr['מק"ט']));return `<div class="row" style="${pr._active?"":"opacity:.55"}">${p&&p._img?`<img src="${p._img}" alt="" referrerpolicy="no-referrer">`:""}<button data-pre="${pr._row}" style="all:unset;flex:1;min-width:0;cursor:pointer"><b>${esc(pr["כותרת"])}</b><div class="meta">${esc(pr["טקסט"]||"")}</div></button><label class="toggle small"><input type="checkbox" data-pract="${pr._row}" ${pr._active?"checked":""}> פעיל</label></div>`}).join("")||`<div class="empty">אין מבצעים. לחץ "מבצע חדש".</div>`}</div>`}
+function editPromo(row){const a=A(),pr=row?a.promos.find(x=>x._row===row):{"פעיל":true};
+  const opts=a.products.filter(p=>p._active&&p['מק"ט']).map(p=>`<option value="${esc(p['מק"ט'])} – ${esc(p["שם מוצר"])}">`).join("");
+  const cur=a.products.find(p=>String(p['מק"ט'])===String(pr['מק"ט']));
+  const m=sheet(row?"עריכת מבצע":"מבצע חדש",`${fld("כותרת","pr_t",pr["כותרת"],'placeholder="למשל: חדש בקטלוג"')}
+  <label class="f" for="pr_x">טקסט</label><textarea id="pr_x" placeholder="למשל: קרטון שני בהנחה, שאל את הסוכן">${esc(pr["טקסט"]||"")}</textarea>
+  ${fld("מוצר במבצע","pr_p",cur?`${cur['מק"ט']} – ${cur["שם מוצר"]}`:(pr['מק"ט']||""),'list="prodList" placeholder="הקלד שם או מק״ט"')}<datalist id="prodList">${opts}</datalist>
+  <label class="toggle" style="margin-top:12px"><input type="checkbox" id="pr_a" ${truthy(pr["פעיל"])?"checked":""}> פעיל</label>
+  <div class="btns"><button class="btn" id="pr_save">שמור</button>${row?`<button class="btn sec" id="pr_del" style="color:#b3271e">מחק מבצע</button>`:""}</div>`);
+  m.querySelector("#pr_save").onclick=async e=>{const v=id=>m.querySelector("#"+id).value.trim();if(!v("pr_t")){toast("חסרה כותרת");return}e.target.disabled=true;
+    const ok=await adminSave("saveRow",{kind:"promos",row:row||null,data:{"כותרת":v("pr_t"),"טקסט":v("pr_x"),'מק"ט':v("pr_p").split("–")[0].trim(),"פעיל":m.querySelector("#pr_a").checked}},"המבצע נשמר");if(!ok)e.target.disabled=false};
+  const d=m.querySelector("#pr_del");if(d)d.onclick=()=>confirmBox("למחוק את המבצע?","מחק",()=>adminSave("deleteRow",{kind:"promos",row,check:String(pr["פעיל"])},"המבצע נמחק"));
+}
+
+/* --- settings --- */
+function settingsView(){const s=A().settings,a=A();
+  return `<h2>הגדרות</h2>
+  <div class="panel"><b>פרטי העסק</b>${fld("שם העסק","s_biz",s["שם העסק"])}${fld("מייל לקבלת הזמנות","s_mail",s["מייל הזמנות"],'inputmode="email"')}${fld("וואטסאפ לקבלת הזמנות","s_wa",s["וואטסאפ"],'inputmode="tel"')}</div>
+  <div class="panel"><b>הזמנות ותזכורות</b>${fld("שעת סגירה (ברירת מחדל)","s_cut",s["שעת סגירה"],'placeholder="14:00"')}
+  <label class="f" for="s_rh">שעת תזכורת ללקוחות (ברירת מחדל)</label>${hourSelect("s_rh",s["שעת תזכורת"],"—")}
+  <label class="f" for="s_rt">נוסח התזכורת</label><textarea id="s_rt">${esc(s["נוסח תזכורת"]||"")}</textarea><p class="note small">{שם} ו-{שעת סגירה} מתמלאים לבד.</p>
+  <label class="toggle" style="margin-top:10px"><input type="checkbox" id="s_sum" ${String(s["סיכום יומי"]).trim()!=="כבוי"?"checked":""}> לשלוח לי כל יום סיכום של מי שלא הזמין</label>
+  <label class="f" for="s_sh">שעת הסיכום</label>${hourSelect("s_sh",s["שעת סיכום"]||"13","—")}</div>
+  <div class="panel"><b>אבטחה</b>${fld("סיסמת מנהל","s_pw",s["סיסמת מנהל"])}</div>
+  <div class="btns"><button class="btn" id="s_save">שמור הגדרות</button></div>
+  <div class="panel" style="margin-top:14px"><b>מתקדם</b><p class="note">כל הנתונים נשמרים בגיליון של גוגל. בדרך כלל אין צורך לפתוח אותו.</p><div class="linkrow"><a class="mini" href="${a.sheetUrl}" target="_blank" rel="noopener">פתח את הגיליון</a><a class="mini" href="${a.folderUrl}" target="_blank" rel="noopener">תיקיית Drive</a></div></div>`}
+
+/* --- wiring --- */
+function wireAdmin(){
+  document.getElementById("out").onclick=()=>logout();
+  document.getElementById("refresh").onclick=()=>{S.admin=null;render()};
+  app.querySelectorAll("[data-at]").forEach(b=>b.onclick=()=>{S.adminTab=b.dataset.at;S.openOrder=null;render();document.getElementById("main").scrollTop=0});
+  const search=(id,key)=>{const i=document.getElementById(id);if(i)i.oninput=()=>{S.af[key]=i.value;const pos=i.selectionStart;keepScroll(render);const n=document.getElementById(id);n.focus();n.setSelectionRange(pos,pos)}};
+  search("oq","oq");search("cq","cq");search("pq","pq");
+  app.querySelectorAll("[data-ost]").forEach(b=>b.onclick=()=>{S.af.st=b.dataset.ost;render()});
+  app.querySelectorAll("[data-oo]").forEach(b=>b.onclick=()=>{S.openOrder=+b.dataset.oo;render();document.getElementById("main").scrollTop=0});
+  const bk=document.getElementById("back");if(bk)bk.onclick=()=>{S.openOrder=null;render()};
+  app.querySelectorAll("[data-st]").forEach(b=>b.onclick=async()=>{const go=async()=>{b.disabled=true;try{await call("setStatus",{token:S.token,no:S.openOrder,status:b.dataset.st});A().orders.find(o=>o.no===S.openOrder).status=b.dataset.st;render();toast("עודכן: "+b.dataset.st)}catch(e){b.disabled=false;toast(e.message)}};b.dataset.st==="בוטלה"?confirmBox("לבטל את ההזמנה?","בטל הזמנה",go):go()});
+  const pd=document.getElementById("pdf");if(pd)pd.onclick=async()=>{const o=A().orders.find(x=>x.no===S.openOrder);if(o.pdf){window.open(o.pdf,"_blank");return}pd.textContent="מכין PDF…";try{const r=await call("pdf",{token:S.token,no:o.no});o.pdf=r.url;window.open(r.url,"_blank");render()}catch(e){toast(e.message);render()}};
+  const cp=document.getElementById("copy");if(cp)cp.onclick=async()=>{const o=A().orders.find(x=>x.no===S.openOrder);const t=o.lines.map(l=>`${l.item}\t${l.q}\t${l.unit}`).join("\n");try{await navigator.clipboard.writeText(t);toast("הועתק")}catch(e){toast("ההעתקה נחסמה")}};
+  // customers
+  const nc=document.getElementById("newCust");if(nc)nc.onclick=()=>editCustomer(null);
+  app.querySelectorAll("[data-ce]").forEach(b=>b.onclick=()=>editCustomer(+b.dataset.ce));
+  app.querySelectorAll("[data-acc]").forEach(i=>i.onchange=()=>adminSave("saveRow",{kind:"customers",row:+i.dataset.acc,data:Object.assign({},(()=>{const c=A().customers.find(x=>x._row===+i.dataset.acc);return{"קוד":c["קוד"],"סיסמה":c["סיסמה"]}})(),{"גישה":i.checked})},i.checked?"ללקוח יש גישה":"הגישה בוטלה"));
+  // products
+  const np=document.getElementById("newProd");if(np)np.onclick=()=>editProduct(null);
+  app.querySelectorAll("[data-pe]").forEach(b=>b.onclick=()=>editProduct(+b.dataset.pe));
+  app.querySelectorAll("[data-pz]").forEach(b=>b.onclick=()=>{S.af.pz=b.dataset.pz;render()});
+  const sh=document.getElementById("showHidden");if(sh)sh.onclick=()=>{S.af.hidden=!S.af.hidden;render()};
+  app.querySelectorAll("[data-pact]").forEach(i=>i.onchange=()=>{const p=A().products.find(x=>x._row===+i.dataset.pact);adminSave("saveRow",{kind:"products",row:p._row,data:{'מק"ט':p['מק"ט'],"פעיל":i.checked}},i.checked?"המוצר מוצג ללקוחות":"המוצר הוסתר")});
+  // promos
+  const npr=document.getElementById("newPromo");if(npr)npr.onclick=()=>editPromo(null);
+  app.querySelectorAll("[data-pre]").forEach(b=>b.onclick=()=>editPromo(+b.dataset.pre));
+  app.querySelectorAll("[data-pract]").forEach(i=>i.onchange=()=>adminSave("saveRow",{kind:"promos",row:+i.dataset.pract,data:{"פעיל":i.checked}},"עודכן"));
+  // settings
+  const ss=document.getElementById("s_save");if(ss)ss.onclick=e=>{const v=id=>document.getElementById(id).value.trim();
+    if(!v("s_pw")){toast("סיסמת מנהל לא יכולה להיות ריקה");return}e.target.disabled=true;
+    adminSave("saveSettings",{data:{"שם העסק":v("s_biz"),"מייל הזמנות":v("s_mail"),"וואטסאפ":v("s_wa"),"שעת סגירה":v("s_cut"),"שעת תזכורת":v("s_rh"),"נוסח תזכורת":v("s_rt"),"סיכום יומי":document.getElementById("s_sum").checked?"פעיל":"כבוי","שעת סיכום":v("s_sh"),"סיסמת מנהל":v("s_pw")}},"ההגדרות נשמרו").then(()=>{const b=document.getElementById("s_save");if(b)b.disabled=false})};
+}
+
+start();
+</script>
+</body>
+</html>
