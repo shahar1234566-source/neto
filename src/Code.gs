@@ -38,9 +38,13 @@ function setup() {
   const ps = ss.getSheetByName(SH.products);
   const pv = ps.getDataRange().getValues();
   const h = pv[0], cImg = h.indexOf('תמונה'), cId = h.indexOf('מזהה תמונה');
+  const hObj = r => { const o = {}; h.forEach((k, i) => o[String(k).trim()] = pv[r][i]); return o; };
   for (let r = 1; r < pv.length; r++) {
+    if (!pv[r].some(x => x !== '')) continue;
+    // מוצר בלי תמונה: מחפשים קובץ בשם המזהה שלו (מק"ט.jpg / b+ברקוד.jpg / nP0001.jpg)
+    if (!pv[r][cImg]) { const guess = pid_(hObj(r)) + '.jpg'; if (ids[guess]) pv[r][cImg] = guess; }
     const fn = pv[r][cImg];
-    pv[r][cId] = fn && ids[fn] ? ids[fn] : '';
+    pv[r][cId] = fn && ids[fn] ? ids[fn] : (pv[r][cId] || '');
   }
   ps.getRange(1, 1, pv.length, h.length).setValues(pv);
 
