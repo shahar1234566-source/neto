@@ -3,7 +3,7 @@
  * הקובץ הזה יושב בתיקיית Drive "נטו הזמנות" ונטען בכל קריאה ע"י הטוען שב-Apps Script.
  * לעדכון: מחליפים את הקובץ ב-Drive ומעלים את SERVER_VER – פעולות התחזוקה (ייבוא, תמונות) ירוצו לבד.
  */
-const SERVER_VER = '2026-11-28.1';
+const SERVER_VER = '2026-11-28.2';
 
 const FOLDER_NAME = 'נטו הזמנות';
 const SH = { settings: 'הגדרות', products: 'מוצרים', customers: 'לקוחות', orders: 'הזמנות', lines: 'שורות הזמנה', promos: 'מבצעים' };
@@ -346,7 +346,8 @@ function bulkProducts_(p) {
     const sh = SpreadsheetApp.getActive().getSheetByName(SH.products);
     const h = ensureCols_(sh, ['מגוונים']);
     const v = sh.getRange(1, 1, sh.getLastRow(), h.length).getValues();
-    const cAct = h.indexOf('פעיל'), cAs = h.indexOf('מגוונים');
+    const cAct = h.indexOf('פעיל'), cAs = h.indexOf('מגוונים'), cCat = h.indexOf('קטגוריה'), cSub = h.indexOf('תת-קטגוריה');
+    const catCol = v.map(r => [r[cCat]]), subCol = v.map(r => [r[cSub]]);
     const actCol = v.map(r => [r[cAct]]), asCol = v.map(r => [r[cAs]]);
     rows.forEach(r => {
       const i = r - 1; if (i < 1 || i >= v.length) return;
@@ -354,10 +355,14 @@ function bulkProducts_(p) {
       let l = listOf_(asCol[i][0]);
       if (p.addTo && l.indexOf(p.addTo) < 0) l.push(p.addTo);
       if (p.removeFrom) l = l.filter(x => x !== p.removeFrom);
+      if (p.cat) catCol[i][0] = p.cat;
+      if (p.sub) subCol[i][0] = p.sub;
       asCol[i][0] = l.join(', ');
     });
     sh.getRange(1, cAct + 1, v.length, 1).setValues(actCol);
     sh.getRange(1, cAs + 1, v.length, 1).setValues(asCol);
+    if (p.cat) sh.getRange(1, cCat + 1, v.length, 1).setValues(catCol);
+    if (p.sub) sh.getRange(1, cSub + 1, v.length, 1).setValues(subCol);
   } finally { lock.releaseLock(); }
 }
 function saveAssorts_(names, renames) {
@@ -405,7 +410,7 @@ function importCatalog_() {
   const file = it.next();
   const job = JSON.parse(file.getBlob().getDataAsString('UTF-8'));
   const sh = SpreadsheetApp.getActive().getSheetByName(SH.products);
-  const h = ensureCols_(sh, ['מגוונים', 'מזהה פנימי', 'עמוד בקטלוג', 'מה לבדוק']);
+  const h = ensureCols_(sh, ['מגוונים', 'מזהה פנימי', 'עמוד בקטלוג', 'מה לבדוק', 'מחיר', 'מחיר נטו']);
   const v = sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), h.length).getValues();
   const c = k => h.indexOf(k);
   const bySku = {}; v.forEach((r, i) => { if (i && String(r[c('מק"ט')]).trim()) bySku[String(r[c('מק"ט')]).trim()] = i; });
@@ -427,6 +432,16 @@ function importCatalog_() {
     v[i][c('מה לבדוק')] = clearName(v[i][c('מה לבדוק')]);
     fixed++;
   });
+  let updated = 0;
+  if ((job.update || []).length) {
+    const byPid = {};
+    v.forEach((r, i) => { if (!i) return; const o = {}; h.forEach((k, j) => o[k] = r[j]); byPid[pid_(o)] = i; });
+    job.update.forEach(u => {
+      const i = byPid[u.pid]; if (i === undefined) return;
+      Object.keys(u.data || {}).forEach(k => { if (c(k) >= 0) v[i][c(k)] = u.data[k]; });
+      updated++;
+    });
+  }
   const add = (job.add || []).filter(a => !a['מק"ט'] || bySku[a['מק"ט']] === undefined);
   const newRows = add.map(a => h.map(k => k === 'פעיל' ? false : (a[k] === undefined ? '' : a[k])));
   sh.getRange(1, 1, v.length, h.length).setValues(v);
@@ -436,7 +451,7 @@ function importCatalog_() {
     sh.getRange(start, 1, newRows.length, h.length).setValues(newRows);
   }
   file.setName('ייבוא-מוצרים-בוצע-' + Utilities.formatDate(new Date(), 'Asia/Jerusalem', 'yyyy-MM-dd') + '.json');
-  return 'נוספו ' + newRows.length + ' מוצרים, תוקנו ' + fixed + ' שמות והושלמו ' + skus + ' מק"טים';
+  return 'נוספו ' + newRows.length + ' מוצרים, עודכנו ' + updated + ', תוקנו ' + fixed + ' שמות והושלמו ' + skus + ' מק"טים';
 }
 
 function uploadImage_(b64, name) {

@@ -225,7 +225,7 @@ const PUBLIC_URL_FALLBACK="https://shahar1234566-source.github.io/neto/";
 const pill=s=>`<span class="pill ${s==="חדשה"?"p-new":s==="אושרה"||s==="סופקה"?"p-ok":"p-out"}">${esc(s)}</span>`;
 const DAYS=["א","ב","ג","ד","ה","ו","ש"];
 const ATABS=[["orders","☰","הזמנות"],["customers","👥","לקוחות"],["products","📦","מוצרים"],["promos","🏷","מבצעים"],["settings","⚙","הגדרות"]];
-S.af=S.af||{st:"פעילות",oq:"",cq:"",pq:"",pz:"הכול",ps:"מוצגים",pp:"",pa:"",selMode:false};S.sel=S.sel||new Set();
+S.af=S.af||{st:"פעילות",oq:"",cq:"",pq:"",pz:"הכול",ps:"מוצגים",pp:"",pa:"",psub:"",selMode:false};S.sel=S.sel||new Set();
 const A=()=>S.admin;
 const pubUrl=()=>(A().settings["כתובת האפליקציה"]||PUBLIC_URL_FALLBACK);
 const personal=c=>`${pubUrl()}?u=${c["קוד"]}&k=${c["מפתח אישי"]||""}`;
@@ -328,7 +328,7 @@ const truthy=x=>x===true||/^(true|כן|1|v|✓)$/i.test(String(x??"").trim());
 const allSubs=()=>[...new Set(A().products.map(p=>p["תת-קטגוריה"]).filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b),"he"));
 const asList=p=>String(p["מגוונים"]||"").split(",").map(x=>x.trim()).filter(Boolean);
 function filteredProducts(){const a=A(),f=S.af,q=f.pq.trim();
-  let list=a.products.filter(p=>(f.ps==="הכול"||(f.ps==="מוצגים"?p._active:!p._active))&&(f.pz==="הכול"||p["קטגוריה"]===f.pz)&&(!f.pp||String(p["עמוד בקטלוג"]||"")===f.pp)&&(!f.pa||(f.pa==="__none"?!asList(p).length:asList(p).includes(f.pa))));
+  let list=a.products.filter(p=>(f.ps==="הכול"||(f.ps==="מוצגים"?p._active:!p._active))&&(f.pz==="הכול"||p["קטגוריה"]===f.pz)&&(!f.pp||String(p["עמוד בקטלוג"]||"")===f.pp)&&(!f.psub||p["תת-קטגוריה"]===f.psub)&&(!f.pa||(f.pa==="__none"?!asList(p).length:asList(p).includes(f.pa))));
   if(q)list=list.filter(p=>String(p["שם מוצר"]).includes(q)||String(p['מק"ט']).includes(q)||String(p["ברקוד"]).includes(q)||String(p["תת-קטגוריה"]).includes(q)||String(p["מה לבדוק"]||"").includes(q));
   return list}
 function productsView(){const a=A(),f=S.af,list=filteredProducts(),LIM=250;
@@ -339,15 +339,16 @@ function productsView(){const a=A(),f=S.af,list=filteredProducts(),LIM=250;
   <div class="searchrow"><input id="pq" type="search" placeholder="חיפוש לפי שם, מק״ט, ברקוד" value="${esc(f.pq)}"><button class="iconbtn" id="newProd" style="white-space:nowrap">+ מוצר חדש</button></div>
   <div class="chips">${["מוצגים","מוסתרים","הכול"].map(x=>`<button class="chip" data-ps="${x}" aria-pressed="${f.ps===x}">${x}</button>`).join("")}</div>
   <div class="chips">${["הכול"].concat(ZONES).map(z=>`<button class="chip" data-pz="${z}" aria-pressed="${f.pz===z}">${z}</button>`).join("")}</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0"><select id="pp"><option value="">כל עמודי הקטלוג</option>${pages.map(x=>`<option value="${x}" ${f.pp===x?"selected":""}>עמוד ${x}</option>`).join("")}</select>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0"><select id="psub" style="grid-column:1/-1"><option value="">כל תתי-הקטגוריות</option>${allSubs().filter(x=>f.pz==="הכול"||a.products.some(p=>p["קטגוריה"]===f.pz&&p["תת-קטגוריה"]===x)).map(x=>`<option ${f.psub===x?"selected":""}>${esc(x)}</option>`).join("")}</select><select id="pp"><option value="">כל עמודי הקטלוג</option>${pages.map(x=>`<option value="${x}" ${f.pp===x?"selected":""}>עמוד ${x}</option>`).join("")}</select>
   <select id="pa"><option value="">כל המגוונים</option><option value="__none" ${f.pa==="__none"?"selected":""}>בלי מגוון</option>${asg.map(n=>`<option ${f.pa===n?"selected":""}>${esc(n)}</option>`).join("")}</select></div>
   <div style="display:flex;align-items:center;gap:8px;margin:4px 0 8px"><span class="note" style="margin:0">${list.length} מוצרים${list.length>LIM?` · מוצגים ${LIM} הראשונים`:""}</span><div style="flex:1"></div>
   <button class="iconbtn" id="selMode" aria-pressed="${f.selMode}">${f.selMode?"סיום בחירה":"☑ בחירה"}</button>${f.selMode?`<button class="iconbtn" id="selAll">בחר הכול (${list.length})</button>`:""}</div>
   ${f.selMode&&sel.size?`<div class="panel bulkbar" style="position:sticky;top:0;z-index:5;border:2px solid var(--brand)"><b>${sel.size} נבחרו</b> <button class="mini" id="selClear">נקה</button>
     <div class="btns" style="grid-template-columns:1fr 1fr;display:grid;gap:8px;margin-top:8px"><button class="btn" data-bulk="show">👁 הצג באפליקציה</button><button class="btn sec" data-bulk="hide">הסתר</button></div>
-    ${asg.length?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select id="bAdd"><option value="">➕ הוסף למגוון…</option>${asg.map(n=>`<option>${esc(n)}</option>`).join("")}</select><select id="bRem"><option value="">➖ הסר ממגוון…</option>${asg.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div>`:`<p class="note small">כדי לשייך למגוון, צור קודם מגוון בכפתור "מגוונים".</p>`}</div>`:""}
+    ${asg.length?`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><select id="bAdd"><option value="">➕ הוסף למגוון…</option>${asg.map(n=>`<option>${esc(n)}</option>`).join("")}</select><select id="bRem"><option value="">➖ הסר ממגוון…</option>${asg.map(n=>`<option>${esc(n)}</option>`).join("")}</select></div>`:`<p class="note small">כדי לשייך למגוון, צור קודם מגוון בכפתור "מגוונים".</p>`}
+    <div style="display:grid;grid-template-columns:1fr 2fr auto;gap:8px;margin-top:8px"><select id="bCat">${ZONES.map(z=>`<option>${z}</option>`).join("")}</select><input class="t" id="bSub" list="subsAll" placeholder="העבר לתת-קטגוריה…"><datalist id="subsAll">${allSubs().map(x=>`<option value="${esc(x)}">`).join("")}</datalist><button class="iconbtn" id="bMove">העבר</button></div></div>`:""}
   <div class="panel">${list.slice(0,LIM).map(p=>`<div class="row" style="${p._active?"":"opacity:.6"}">${f.selMode?`<input type="checkbox" data-sel="${p._row}" ${sel.has(p._row)?"checked":""} style="width:22px;height:22px;flex:0 0 22px">`:""}${p._img?`<img src="${p._img}" alt="" referrerpolicy="no-referrer" loading="lazy">`:`<div class="noimg" style="width:44px;height:44px;flex:0 0 44px;font-size:10px">אין</div>`}
-    <button data-pe="${p._row}" style="all:unset;flex:1;min-width:0;cursor:pointer"><div style="font-weight:600;font-size:14.5px">${esc(p["שם מוצר"])||"(בלי שם)"}</div><div class="meta">${p['מק"ט']||"אין מק״ט"} · ${esc(p["תת-קטגוריה"]||"")}${p["יח' בקרטון"]?` · ${p["יח' בקרטון"]} בקרטון`:""}${p["עמוד בקטלוג"]?` · עמ׳ ${p["עמוד בקטלוג"]}`:""}${p["תגית"]?` · ${esc(p["תגית"])}`:""}</div>${asList(p).length?`<div class="meta" style="color:var(--brand)">מגוונים: ${asList(p).map(esc).join(", ")}</div>`:""}${p["מה לבדוק"]?`<div class="meta" style="color:#b26a00">${esc(p["מה לבדוק"])}</div>`:""}</button>
+    <button data-pe="${p._row}" style="all:unset;flex:1;min-width:0;cursor:pointer"><div style="font-weight:600;font-size:14.5px">${esc(p["שם מוצר"])||"(בלי שם)"}</div><div class="meta">${p['מק"ט']||"אין מק״ט"} · ${esc(p["תת-קטגוריה"]||"")}${p["יח' בקרטון"]?` · ${p["יח' בקרטון"]} בקרטון`:""}${p["עמוד בקטלוג"]?` · עמ׳ ${p["עמוד בקטלוג"]}`:""}${p["תגית"]?` · ${esc(p["תגית"])}`:""}${p["מחיר"]?` · <b style="color:#0a7a3d">₪${Number(p["מחיר"]).toFixed(2)}${p["מחיר נטו"]?` (נטו ₪${Number(p["מחיר נטו"]).toFixed(2)})`:""}</b>`:""}</div>${asList(p).length?`<div class="meta" style="color:var(--brand)">מגוונים: ${asList(p).map(esc).join(", ")}</div>`:""}${p["מה לבדוק"]?`<div class="meta" style="color:#b26a00">${esc(p["מה לבדוק"])}</div>`:""}</button>
     ${f.selMode?"":`<label class="toggle small"><input type="checkbox" data-pact="${p._row}" ${p._active?"checked":""}> מוצג</label>`}</div>`).join("")||`<div class="empty">לא נמצאו מוצרים.</div>`}</div>`}
 function editAssorts(){const cur=(A().assorts||[]).slice();const rows=cur.map(n=>({orig:n,name:n}));
   const draw=()=>{const m=sheet("מגוונים",`<p class="note">מגוון הוא רשימת מוצרים לקבוצת לקוחות, למשל "פרטיים", "אלונית", "AM:PM". לקוח שמשויך למגוון רואה רק את המוצרים המוצגים שבמגוון שלו. לקוח בלי מגוון רואה את כל המוצרים המוצגים.</p>
@@ -371,6 +372,7 @@ function editProduct(row){const p=row?A().products.find(x=>x._row===row):{"קט�
   <div><label class="f" for="p_cat">קטגוריה</label><select id="p_cat">${ZONES.map(z=>`<option ${p["קטגוריה"]===z?"selected":""}>${z}</option>`).join("")}</select></div>
   <div>${fld("יח׳ בקרטון","p_ct",p["יח' בקרטון"],'inputmode="numeric"')}</div></div>
   ${fld("תת-קטגוריה","p_sub",p["תת-קטגוריה"],'list="subsList" placeholder="בחר או כתוב חדשה"')}<datalist id="subsList">${allSubs().map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">${fld("מחיר (רק למנהל)","p_price",p["מחיר"],'inputmode="decimal"')}${fld("מחיר נטו (אחרי הנחה)","p_net",p["מחיר נטו"],'inputmode="decimal"')}</div>
   <label class="f" for="p_tag">תגית</label><select id="p_tag">${["","חדש","חסר זמנית","מבצע"].map(t=>`<option value="${t}" ${(p["תגית"]||"")===t?"selected":""}>${t||"בלי תגית"}</option>`).join("")}</select>
   ${(A().assorts||[]).length?`<label class="f">מגוונים</label><div class="chips" id="p_as" style="flex-wrap:wrap">${A().assorts.map(n=>`<button type="button" class="chip" data-asc="${esc(n)}" aria-pressed="${asList(p).includes(n)}">${esc(n)}</button>`).join("")}</div>`:""}
   ${p["מה לבדוק"]?`<p class="note small" style="color:#b26a00">לבדיקה: ${esc(p["מה לבדוק"])}</p>`:""}
@@ -380,7 +382,7 @@ function editProduct(row){const p=row?A().products.find(x=>x._row===row):{"קט�
   m.querySelector("#p_file").onchange=async e=>{const f=e.target.files[0];if(!f)return;try{newImg=await resizeImage(f);m.querySelector("#p_imgbox").innerHTML=`<img src="data:image/jpeg;base64,${newImg}" style="width:100%;height:100%;object-fit:contain">`}catch(err){toast("לא הצלחתי לקרוא את התמונה")}};
   m.querySelector("#p_save").onclick=async e=>{const v=id=>m.querySelector("#"+id).value.trim();
     if(!v("p_name")){toast("חסר שם מוצר");return} const b=e.target;b.disabled=true;b.textContent="שומר…";
-    const data={"שם מוצר":v("p_name"),'מק"ט':v("p_item"),"ברקוד":v("p_bc"),"קטגוריה":v("p_cat"),"תת-קטגוריה":v("p_sub"),"יח' בקרטון":v("p_ct")?Number(v("p_ct")):"","תגית":v("p_tag"),"פעיל":m.querySelector("#p_act").checked};
+    const data={"שם מוצר":v("p_name"),'מק"ט':v("p_item"),"ברקוד":v("p_bc"),"קטגוריה":v("p_cat"),"תת-קטגוריה":v("p_sub"),"יח' בקרטון":v("p_ct")?Number(v("p_ct")):"","תגית":v("p_tag"),"מחיר":v("p_price")?Number(v("p_price")):"","מחיר נטו":v("p_net")?Number(v("p_net")):"","פעיל":m.querySelector("#p_act").checked};
     if((A().assorts||[]).length)data["מגוונים"]=[...m.querySelectorAll("[data-asc]")].filter(b=>b.getAttribute("aria-pressed")==="true").map(b=>b.dataset.asc).join(", ");
     try{if(newImg){b.textContent="מעלה תמונה…";const r=await call("uploadImage",{token:S.token,b64:newImg,name:v("p_item")||("p"+Date.now())});data["מזהה תמונה"]=r.id;data["תמונה"]=r.name}}catch(err){toast("העלאת התמונה נכשלה: "+err.message);b.disabled=false;b.textContent="שמור";return}
     const ok=await adminSave("saveRow",{kind:"products",row:row||null,data},"המוצר נשמר");if(!ok){b.disabled=false;b.textContent="שמור"}};
@@ -441,6 +443,8 @@ function wireAdmin(){
   app.querySelectorAll("[data-pz]").forEach(b=>b.onclick=()=>{S.af.pz=b.dataset.pz;render()});
   app.querySelectorAll("[data-ps]").forEach(b=>b.onclick=()=>{S.af.ps=b.dataset.ps;render()});
   const pp=document.getElementById("pp");if(pp)pp.onchange=()=>{S.af.pp=pp.value;render()};
+  const psub=document.getElementById("psub");if(psub)psub.onchange=()=>{S.af.psub=psub.value;render()};
+  const bm=document.getElementById("bMove");if(bm)bm.onclick=()=>{const sub=document.getElementById("bSub").value.trim(),cat=document.getElementById("bCat").value;if(!sub){toast("כתוב לאיזו תת-קטגוריה להעביר");return}bulk({cat,sub},"הועברו ל"+sub)};
   const pa=document.getElementById("pa");if(pa)pa.onchange=()=>{S.af.pa=pa.value;render()};
   const asb=document.getElementById("assorts");if(asb)asb.onclick=()=>editAssorts();
   const sm=document.getElementById("selMode");if(sm)sm.onclick=()=>{S.af.selMode=!S.af.selMode;if(!S.af.selMode)S.sel.clear();keepScroll(render)};
