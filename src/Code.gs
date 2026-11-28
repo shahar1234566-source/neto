@@ -30,10 +30,15 @@ function api(action, p) {
 function setup() { return __server().setup(); }
 function sendReminders() { return __server().sendReminders(); }
 
-// לא נקרא אף פעם. נמצא כאן רק כדי שגוגל יבקש את כל ההרשאות שהקוד ב-Drive צריך.
+// לא נקרא אף פעם. נמצא כאן רק כדי שגוגל יבקש את כל ההרשאות (קריאה וכתיבה) שהקוד ב-Drive צריך.
 function __permissions_() {
-  SpreadsheetApp.getActive(); DriveApp.getRootFolder(); MailApp.getRemainingDailyQuota();
-  ScriptApp.getProjectTriggers(); HtmlService.createHtmlOutput(''); CacheService.getScriptCache();
-  PropertiesService.getScriptProperties(); LockService.getScriptLock(); Utilities.getUuid();
+  var ss = SpreadsheetApp.getActive(); ss.getSheets()[0].getRange(1, 1).setValue(ss.getSheets()[0].getRange(1, 1).getValue()); ss.toast('');
+  var f = DriveApp.getRootFolder(); f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  var nf = f.createFolder('x'); var file = nf.createFile(Utilities.newBlob('x')); file.setName('y'); file.setTrashed(true);
+  DriveApp.createFile(Utilities.newBlob('x')); Utilities.unzip(Utilities.newBlob('x'));
+  MailApp.sendEmail({ to: 'x', subject: 'x', htmlBody: 'x' }); MailApp.getRemainingDailyQuota();
+  ScriptApp.newTrigger('sendReminders').timeBased().everyHours(1).create(); ScriptApp.getProjectTriggers().forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  HtmlService.createHtmlOutput('').getBlob().getAs('application/pdf');
+  CacheService.getScriptCache(); PropertiesService.getScriptProperties().setProperty('x', 'x'); LockService.getScriptLock(); Utilities.getUuid();
   UrlFetchApp.fetch('https://www.google.com');
 }
