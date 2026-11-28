@@ -3,7 +3,7 @@
  * הקובץ הזה יושב בתיקיית Drive "נטו הזמנות" ונטען בכל קריאה ע"י הטוען שב-Apps Script.
  * לעדכון: מחליפים את הקובץ ב-Drive ומעלים את SERVER_VER – פעולות התחזוקה (ייבוא, תמונות) ירוצו לבד.
  */
-const SERVER_VER = '2026-11-28.2';
+const SERVER_VER = '2026-11-28.3';
 
 const FOLDER_NAME = 'נטו הזמנות';
 const SH = { settings: 'הגדרות', products: 'מוצרים', customers: 'לקוחות', orders: 'הזמנות', lines: 'שורות הזמנה', promos: 'מבצעים' };
@@ -442,16 +442,32 @@ function importCatalog_() {
       updated++;
     });
   }
+  let merged = 0, imgs = 0; const dropRows = [];
+  if ((job.merge || []).length || (job.copyImg || []).length) {
+    const byPid = {};
+    v.forEach((r, i) => { if (!i) return; const o = {}; h.forEach((k, j) => o[k] = r[j]); byPid[pid_(o)] = i; });
+    (job.copyImg || []).forEach(m => {
+      const t = byPid[m.to], f = byPid[m.frm]; if (t === undefined || f === undefined) return;
+      if (String(v[t][c('מזהה תמונה')]).trim() || !String(v[f][c('מזהה תמונה')]).trim()) return;
+      v[t][c('מזהה תמונה')] = v[f][c('מזהה תמונה')]; v[t][c('תמונה')] = v[f][c('תמונה')]; imgs++;
+    });
+    (job.merge || []).forEach(m => {
+      const k = byPid[m.keep], d = byPid[m.drop]; if (k === undefined || d === undefined || k === d) return;
+      Object.keys(m.set || {}).forEach(x => { if (c(x) >= 0) v[k][c(x)] = m.set[x]; });
+      dropRows.push(d + 1); merged++;
+    });
+  }
   const add = (job.add || []).filter(a => !a['מק"ט'] || bySku[a['מק"ט']] === undefined);
   const newRows = add.map(a => h.map(k => k === 'פעיל' ? false : (a[k] === undefined ? '' : a[k])));
   sh.getRange(1, 1, v.length, h.length).setValues(v);
+  dropRows.sort((a, b) => b - a).forEach(r => sh.deleteRow(r));
   if (newRows.length) {
     const start = sh.getLastRow() + 1;
     h.forEach((k, i) => { if (TEXT_COLS.indexOf(k) >= 0) sh.getRange(start, i + 1, newRows.length, 1).setNumberFormat('@'); });
     sh.getRange(start, 1, newRows.length, h.length).setValues(newRows);
   }
   file.setName('ייבוא-מוצרים-בוצע-' + Utilities.formatDate(new Date(), 'Asia/Jerusalem', 'yyyy-MM-dd') + '.json');
-  return 'נוספו ' + newRows.length + ' מוצרים, עודכנו ' + updated + ', תוקנו ' + fixed + ' שמות והושלמו ' + skus + ' מק"טים';
+  return 'נוספו ' + newRows.length + ' מוצרים, אוחדו ' + merged + ' כפולים, הושלמו ' + imgs + ' תמונות, עודכנו ' + updated + ', תוקנו ' + fixed + ' שמות והושלמו ' + skus + ' מק"טים';
 }
 
 function uploadImage_(b64, name) {
